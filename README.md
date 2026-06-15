@@ -4,7 +4,17 @@
 
 它不用 Firebase。远程联机使用 PeerJS + WebRTC 点对点数据连接；如果 PeerJS 网络库加载失败，会退回到 `localStorage` 本机双窗口试玩。
 
-词库在 `word-bank.js`，按 Pictionary 的类别思路和 Draw Something 的难度思路组织，运行时生成超过 1000 个候选词。
+词库在 `word-bank.js`，当前约 1000 个词。主要来源：
+
+- Google Quick, Draw! Dataset 的官方绘画类别，CC BY 4.0。
+- THUOCL 清华大学开放中文词库里的饮食、成语等词表。
+- 少量人工补充的情侣、日常、地点、动作、职业等适合两个人玩的词。
+
+构建脚本在 `scripts/build-word-bank.mjs`。如果之后要重新生成，先把源词表下载到 `/tmp`，再运行：
+
+```bash
+node scripts/build-word-bank.mjs
+```
 
 ## 本地运行
 
