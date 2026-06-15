@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>你画我猜 Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section id="lobby" class="lobby">
+        <div class="intro">
+          <p class="eyebrow">Draw & Guess</p>
+          <h1>你画我猜</h1>
+          <p>创建一个房间，把房间码发给对方。支持浏览器点对点联机；如果网络库加载失败，会自动退回本机双窗口试玩。</p>
+        </div>
+
+        <form id="joinForm" class="join-form">
+          <label>
+            昵称
+            <input id="nameInput" maxlength="12" placeholder="比如 小陈" required />
+          </label>
+          <label>
+            房间码
+            <input id="roomInput" maxlength="16" placeholder="留空自动创建" />
+          </label>
+          <button type="submit">进入房间</button>
+        </form>
+      </section>
+
+      <section id="game" class="game hidden">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">房间 <button id="copyRoom" class="text-button" type="button" title="复制邀请链接"></button></p>
+            <h2 id="roundTitle">准备开始</h2>
+          </div>
+          <div class="scoreboard">
+            <span id="timer">60s</span>
+            <span id="score">0 : 0</span>
+          </div>
+        </header>
+
+        <section class="play-area">
+          <aside class="side-panel">
+            <div class="word-box">
+              <p>当前身份</p>
+              <strong id="roleLabel">-</strong>
+              <span id="wordLabel">等待开始</span>
+            </div>
+
+            <div class="players">
+              <h3>玩家</h3>
+              <ul id="playerList"></ul>
+            </div>
+
+            <div class="controls">
+              <button id="startRound" type="button">开始/换题</button>
+              <button id="swapRole" type="button">交换画手</button>
+              <button id="clearCanvas" type="button">清空画板</button>
+            </div>
+          </aside>
+
+          <section class="board-wrap">
+            <div class="toolbar" aria-label="画笔工具">
+              <input id="colorPicker" type="color" value="#111827" title="颜色" />
+              <input id="sizePicker" type="range" min="2" max="24" value="7" title="笔粗" />
+              <button id="eraser" type="button">橡皮</button>
+            </div>
+            <canvas id="board" width="960" height="640"></canvas>
+          </section>
+
+          <aside class="chat-panel">
+            <div id="messages" class="messages"></div>
+            <form id="guessForm" class="guess-form">
+              <input id="guessInput" placeholder="输入答案或聊天" autocomplete="off" />
+              <button type="submit">发送</button>
+            </form>
+          </aside>
+        </section>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
