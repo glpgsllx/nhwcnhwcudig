@@ -4,6 +4,8 @@
 
 它不用 Firebase。远程联机使用 PeerJS + WebRTC 点对点数据连接；如果 PeerJS 网络库加载失败，会退回到 `localStorage` 本机双窗口试玩。
 
+词库在 `word-bank.js`，按 Pictionary 的类别思路和 Draw Something 的难度思路组织，运行时生成超过 1000 个候选词。
+
 ## 本地运行
 
 直接打开 `index.html`，或者在项目目录启动一个静态服务器：

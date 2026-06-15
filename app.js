@@ -1,21 +1,4 @@
-const WORDS = [
-  "奶茶",
-  "月亮",
-  "小狗",
-  "火锅",
-  "飞机",
-  "雨伞",
-  "西瓜",
-  "耳机",
-  "蛋糕",
-  "企鹅",
-  "玫瑰",
-  "电影",
-  "城堡",
-  "吉他",
-  "拖鞋",
-  "雪人",
-];
+const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientId = randomId();
