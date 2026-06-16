@@ -46,6 +46,8 @@ const swapRole = document.querySelector("#swapRole");
 const clearCanvas = document.querySelector("#clearCanvas");
 const toolbarClearCanvas = document.querySelector("#toolbarClearCanvas");
 const colorPicker = document.querySelector("#colorPicker");
+const eraserSizeRange = document.querySelector("#eraserSizeRange");
+const eraserSizeLabel = document.querySelector("#eraserSizeLabel");
 const opacityRange = document.querySelector("#opacityRange");
 const opacityLabel = document.querySelector("#opacityLabel");
 const eraser = document.querySelector("#eraser");
@@ -53,6 +55,7 @@ const undoStroke = document.querySelector("#undoStroke");
 const redoStroke = document.querySelector("#redoStroke");
 const zoomLabel = document.querySelector("#zoomLabel");
 const canvasViewport = document.querySelector("#canvasViewport");
+const eraserPreview = document.querySelector("#eraserPreview");
 const messages = document.querySelector("#messages");
 const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
@@ -176,6 +179,7 @@ document.querySelectorAll("[data-tool]").forEach((button) => {
   button.addEventListener("click", () => {
     currentTool = button.dataset.tool;
     setActive("[data-tool]", button);
+    if (currentTool !== "eraser") hideEraserPreview();
   });
 });
 
@@ -197,17 +201,16 @@ opacityRange.addEventListener("input", () => {
   opacityLabel.textContent = `${opacityRange.value}%`;
 });
 
+eraserSizeRange.addEventListener("input", () => {
+  eraserSize = Number(eraserSizeRange.value);
+  eraserSizeLabel.textContent = `${eraserSize}`;
+  updateEraserPreview();
+});
+
 document.querySelectorAll("[data-size]").forEach((button) => {
   button.addEventListener("click", () => {
     brushSize = Number(button.dataset.size);
     setActive("[data-size]", button);
-  });
-});
-
-document.querySelectorAll("[data-eraser-size]").forEach((button) => {
-  button.addEventListener("click", () => {
-    eraserSize = Number(button.dataset.eraserSize);
-    setActive("[data-eraser-size]", button);
   });
 });
 
@@ -271,6 +274,9 @@ canvas.addEventListener("pointerdown", (event) => {
     fillAtPoint(lastPoint);
     return;
   }
+  if (currentTool === "eraser") {
+    showEraserPreview(event);
+  }
   drawing = true;
   canvas.setPointerCapture(event.pointerId);
   currentStroke = createStroke();
@@ -286,6 +292,9 @@ canvas.addEventListener("pointermove", (event) => {
   }
   if (!drawing || !isDrawer()) return;
   event.preventDefault();
+  if (currentTool === "eraser") {
+    showEraserPreview(event);
+  }
   const nextPoint = getCanvasPoint(event);
   const style = getBrushStyle();
   const line = {
@@ -321,6 +330,7 @@ canvas.addEventListener("pointerup", (event) => {
   if (!drawing && !currentStroke) return;
   drawing = false;
   lastPoint = null;
+  hideEraserPreview();
   finishCurrentStroke();
   saveState();
 });
@@ -334,6 +344,7 @@ canvas.addEventListener("pointercancel", (event) => {
   if (!drawing && !currentStroke) return;
   drawing = false;
   lastPoint = null;
+  hideEraserPreview();
   finishCurrentStroke();
   saveState();
 });
@@ -642,6 +653,7 @@ function setZoom(nextZoom) {
   canvas.style.width = `${canvas.width * zoom}px`;
   canvas.style.height = `${canvas.height * zoom}px`;
   zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+  updateEraserPreview();
 }
 
 function fitCanvas() {
@@ -692,6 +704,31 @@ function getPointCenter(first, second) {
     x: (first.x + second.x) / 2,
     y: (first.y + second.y) / 2,
   };
+}
+
+function showEraserPreview(event) {
+  if (!eraserPreview) return;
+  eraserPreview.classList.remove("hidden");
+  updateEraserPreview(event);
+}
+
+function hideEraserPreview() {
+  if (!eraserPreview) return;
+  eraserPreview.classList.add("hidden");
+}
+
+function updateEraserPreview(event) {
+  if (!eraserPreview || currentTool !== "eraser" || eraserPreview.classList.contains("hidden")) return;
+  const size = eraserSize * zoom;
+  eraserPreview.style.width = `${size}px`;
+  eraserPreview.style.height = `${size}px`;
+  if (event) {
+    const rect = canvasViewport.getBoundingClientRect();
+    const x = event.clientX - rect.left + canvasViewport.scrollLeft;
+    const y = event.clientY - rect.top + canvasViewport.scrollTop;
+    eraserPreview.style.left = `${x - size / 2}px`;
+    eraserPreview.style.top = `${y - size / 2}px`;
+  }
 }
 
 function getCanvasPoint(event) {

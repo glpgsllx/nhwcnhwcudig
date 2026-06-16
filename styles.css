@@ -450,6 +450,10 @@ input:focus {
   text-align: right;
 }
 
+.eraser-control {
+  min-width: 220px;
+}
+
 .zoom-status {
   background: #f9fafb;
   border: 1px solid #e5e7eb;
@@ -467,11 +471,21 @@ input:focus {
   max-width: 100%;
   min-height: 0;
   min-width: 0;
+  position: relative;
   overflow: auto;
   overscroll-behavior: contain;
   padding: 14px;
   touch-action: none;
   width: 100%;
+}
+
+.eraser-preview {
+  border: 2px solid #111827;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.75);
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
 }
 
 canvas {

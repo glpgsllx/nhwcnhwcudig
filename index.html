@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>你画我猜 Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=20260616-zoomfix" />
+    <link rel="stylesheet" href="./styles.css?v=20260616-eraser-slider" />
   </head>
   <body>
     <main class="app">
@@ -113,11 +113,11 @@
                 <button class="tool-button" type="button" data-size="13">粗</button>
                 <button class="tool-button" type="button" data-size="22">超粗</button>
               </div>
-              <div class="tool-group" aria-label="橡皮大小">
-                <button class="tool-button" type="button" data-eraser-size="12" title="小号橡皮">橡皮小</button>
-                <button class="tool-button active" type="button" data-eraser-size="26" title="中号橡皮">橡皮中</button>
-                <button class="tool-button" type="button" data-eraser-size="44" title="大号橡皮">橡皮大</button>
-              </div>
+              <label class="opacity-control eraser-control">
+                橡皮
+                <input id="eraserSizeRange" type="range" min="8" max="64" value="26" />
+                <span id="eraserSizeLabel">26</span>
+              </label>
               <label class="opacity-control">
                 透明度
                 <input id="opacityRange" type="range" min="15" max="100" value="100" />
@@ -128,6 +128,7 @@
               </div>
             </div>
             <div id="canvasViewport" class="canvas-viewport">
+              <div id="eraserPreview" class="eraser-preview hidden" aria-hidden="true"></div>
               <canvas id="board" width="960" height="640"></canvas>
             </div>
           </section>
@@ -145,6 +146,6 @@
 
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="./word-bank.js?v=20260616"></script>
-    <script src="./app.js?v=20260616-zoomfix"></script>
+    <script src="./app.js?v=20260616-eraser-slider"></script>
   </body>
 </html>
