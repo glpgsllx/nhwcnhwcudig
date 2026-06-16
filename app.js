@@ -43,13 +43,11 @@ const playerList = document.querySelector("#playerList");
 const startRound = document.querySelector("#startRound");
 const swapRole = document.querySelector("#swapRole");
 const clearCanvas = document.querySelector("#clearCanvas");
+const toolbarClearCanvas = document.querySelector("#toolbarClearCanvas");
 const colorPicker = document.querySelector("#colorPicker");
 const eraser = document.querySelector("#eraser");
 const undoStroke = document.querySelector("#undoStroke");
 const redoStroke = document.querySelector("#redoStroke");
-const zoomOut = document.querySelector("#zoomOut");
-const zoomIn = document.querySelector("#zoomIn");
-const zoomFit = document.querySelector("#zoomFit");
 const zoomLabel = document.querySelector("#zoomLabel");
 const canvasViewport = document.querySelector("#canvasViewport");
 const messages = document.querySelector("#messages");
@@ -57,6 +55,10 @@ const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
 const canvas = document.querySelector("#board");
 const ctx = canvas.getContext("2d");
+const activePointers = new Map();
+let pinching = false;
+let pinchStartDistance = 0;
+let pinchStartZoom = 1;
 
 ctx.lineCap = "round";
 ctx.lineJoin = "round";
@@ -151,7 +153,10 @@ swapRole.addEventListener("click", () => {
   saveState();
 });
 
-clearCanvas.addEventListener("click", () => {
+clearCanvas.addEventListener("click", clearBoard);
+toolbarClearCanvas.addEventListener("click", clearBoard);
+
+function clearBoard() {
   if (!requireDrawer()) return;
   if (!confirm("确定清空当前画板吗？")) return;
   state.lines = [];
@@ -161,7 +166,7 @@ clearCanvas.addEventListener("click", () => {
   replayCanvas();
   saveState({ broadcast: false });
   sendSync({ type: "clear", roundId: state.roundId });
-});
+}
 
 document.querySelectorAll("[data-tool]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -207,9 +212,15 @@ redoStroke.addEventListener("click", () => {
   redoLastStroke();
 });
 
-zoomOut.addEventListener("click", () => setZoom(zoom - 0.15));
-zoomIn.addEventListener("click", () => setZoom(zoom + 0.15));
-zoomFit.addEventListener("click", fitCanvas);
+canvasViewport.addEventListener(
+  "wheel",
+  (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    setZoom(zoom * (event.deltaY < 0 ? 1.08 : 0.92));
+  },
+  { passive: false },
+);
 
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -234,8 +245,14 @@ guessForm.addEventListener("submit", (event) => {
 });
 
 canvas.addEventListener("pointerdown", (event) => {
-  if (!isDrawer()) return;
   event.preventDefault();
+  trackPointer(event);
+  if (event.pointerType === "touch" && activePointers.size >= 2) {
+    beginPinch();
+    return;
+  }
+  if (!isDrawer()) return;
+  if (pinching) return;
   drawing = true;
   canvas.setPointerCapture(event.pointerId);
   lastPoint = getCanvasPoint(event);
@@ -244,6 +261,12 @@ canvas.addEventListener("pointerdown", (event) => {
 });
 
 canvas.addEventListener("pointermove", (event) => {
+  if (activePointers.has(event.pointerId)) trackPointer(event);
+  if (pinching) {
+    event.preventDefault();
+    updatePinchZoom();
+    return;
+  }
   if (!drawing || !isDrawer()) return;
   event.preventDefault();
   const nextPoint = getCanvasPoint(event);
@@ -269,14 +292,21 @@ canvas.addEventListener("pointermove", (event) => {
   throttleSave();
 });
 
-canvas.addEventListener("pointerup", () => {
+canvas.addEventListener("pointerup", (event) => {
+  activePointers.delete(event.pointerId);
+  if (pinching) {
+    if (activePointers.size < 2) pinching = false;
+    return;
+  }
   drawing = false;
   lastPoint = null;
   finishCurrentStroke();
   saveState();
 });
 
-canvas.addEventListener("pointercancel", () => {
+canvas.addEventListener("pointercancel", (event) => {
+  activePointers.delete(event.pointerId);
+  if (pinching && activePointers.size < 2) pinching = false;
   drawing = false;
   lastPoint = null;
   finishCurrentStroke();
@@ -477,6 +507,37 @@ function setZoom(nextZoom) {
 function fitCanvas() {
   const availableWidth = Math.max(320, canvasViewport.clientWidth - 28);
   setZoom(Math.min(1, availableWidth / canvas.width));
+}
+
+function trackPointer(event) {
+  activePointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+  });
+}
+
+function beginPinch() {
+  if (drawing) {
+    drawing = false;
+    lastPoint = null;
+    finishCurrentStroke();
+    saveState();
+  }
+  const points = [...activePointers.values()];
+  pinchStartDistance = getPointDistance(points[0], points[1]);
+  pinchStartZoom = zoom;
+  pinching = pinchStartDistance > 0;
+}
+
+function updatePinchZoom() {
+  const points = [...activePointers.values()];
+  if (points.length < 2 || !pinchStartDistance) return;
+  const distance = getPointDistance(points[0], points[1]);
+  setZoom(pinchStartZoom * (distance / pinchStartDistance));
+}
+
+function getPointDistance(first, second) {
+  return Math.hypot(first.x - second.x, first.y - second.y);
 }
 
 function getCanvasPoint(event) {

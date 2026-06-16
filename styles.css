@@ -235,13 +235,11 @@ input:focus {
   margin-top: auto;
 }
 
-.controls button:nth-child(n + 2),
-#eraser {
+.controls button:nth-child(n + 2) {
   background: #111827;
 }
 
-.controls button:nth-child(n + 2):hover,
-#eraser:hover {
+.controls button:nth-child(n + 2):hover {
   background: #030712;
 }
 
@@ -281,10 +279,24 @@ input:focus {
   padding: 8px 10px;
 }
 
-.tool-button:hover,
+.tool-button:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
 .tool-button.active {
-  background: #111827;
+  background: #2563eb;
   color: #fff;
+}
+
+.tool-button.danger {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.tool-button.danger:hover {
+  background: #fee2e2;
+  color: #7f1d1d;
 }
 
 .swatch {
@@ -301,12 +313,15 @@ input:focus {
   box-shadow: 0 0 0 3px #2563eb;
 }
 
-.zoom-controls span {
+.zoom-status {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   color: #374151;
   font-size: 13px;
   font-weight: 800;
-  min-width: 46px;
-  text-align: center;
+  padding: 8px 10px;
+  white-space: nowrap;
 }
 
 .canvas-viewport {
@@ -315,6 +330,7 @@ input:focus {
   overflow: auto;
   overscroll-behavior: contain;
   padding: 14px;
+  touch-action: none;
 }
 
 canvas {

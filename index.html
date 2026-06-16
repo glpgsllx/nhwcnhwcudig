@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>你画我猜 Demo</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260616-touch" />
   </head>
   <body>
     <main class="app">
@@ -66,6 +66,7 @@
               <div class="tool-group">
                 <button id="undoStroke" class="tool-button" type="button" title="撤销">撤销</button>
                 <button id="redoStroke" class="tool-button" type="button" title="重做">重做</button>
+                <button id="toolbarClearCanvas" class="tool-button danger" type="button" title="清空双方画板">清屏</button>
               </div>
               <div class="tool-group" aria-label="笔刷类型">
                 <button class="tool-button active" type="button" data-tool="marker">马克笔</button>
@@ -95,11 +96,8 @@
                 <button class="tool-button active" type="button" data-eraser-size="26" title="中号橡皮">橡皮中</button>
                 <button class="tool-button" type="button" data-eraser-size="44" title="大号橡皮">橡皮大</button>
               </div>
-              <div class="tool-group zoom-controls" aria-label="缩放">
-                <button id="zoomOut" class="tool-button" type="button">-</button>
-                <span id="zoomLabel">100%</span>
-                <button id="zoomIn" class="tool-button" type="button">+</button>
-                <button id="zoomFit" class="tool-button" type="button">适应</button>
+              <div class="zoom-status" aria-label="缩放比例">
+                缩放 <span id="zoomLabel">100%</span>
               </div>
             </div>
             <div id="canvasViewport" class="canvas-viewport">
@@ -120,6 +118,6 @@
 
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="./word-bank.js?v=20260616"></script>
-    <script src="./app.js?v=20260616-tools"></script>
+    <script src="./app.js?v=20260616-touch"></script>
   </body>
 </html>
