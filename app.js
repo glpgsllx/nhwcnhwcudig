@@ -101,14 +101,18 @@ copyRoom.addEventListener("click", async () => {
 startRound.addEventListener("click", () => {
   requirePlayer();
   const word = WORDS[Math.floor(Math.random() * WORDS.length)];
+  state.roundId = randomId();
   state.word = word;
   state.roundEndsAt = Date.now() + 60_000;
   state.lines = [];
+  clearRelayLineQueue();
   state.messages = [
     ...state.messages.slice(-30),
     makeMessage("系统", `${playerName} 开始了新一轮`, "system"),
   ];
-  saveState();
+  replayCanvas();
+  saveState({ broadcast: false });
+  sendSync({ type: "round", state });
 });
 
 swapRole.addEventListener("click", () => {
@@ -130,7 +134,10 @@ swapRole.addEventListener("click", () => {
 clearCanvas.addEventListener("click", () => {
   if (!requireDrawer()) return;
   state.lines = [];
-  saveState();
+  clearRelayLineQueue();
+  replayCanvas();
+  saveState({ broadcast: false });
+  sendSync({ type: "clear", roundId: state.roundId });
 });
 
 eraser.addEventListener("click", () => {
@@ -174,6 +181,7 @@ canvas.addEventListener("pointermove", (event) => {
   const nextPoint = getCanvasPoint(event);
   const line = {
     id: randomId(),
+    roundId: state.roundId,
     from: lastPoint,
     to: nextPoint,
     color: erasing ? "#ffffff" : colorPicker.value,
@@ -205,6 +213,7 @@ function createState() {
     drawerId: "",
     word: "",
     roundEndsAt: 0,
+    roundId: randomId(),
     players: {},
     lines: [],
     messages: [makeMessage("系统", "房间已创建", "system")],
@@ -296,13 +305,13 @@ function loadState() {
   return raw ? JSON.parse(raw) : null;
 }
 
-function saveState() {
+function saveState(options = {}) {
   ensureCurrentPlayer();
   state.updatedAt = Date.now();
   localStorage.setItem(roomKey(), JSON.stringify(state));
   render();
   replayCanvas();
-  if (!applyingRemoteState) sendSync({ type: "state", state });
+  if (!applyingRemoteState && options.broadcast !== false) sendSync({ type: "state", state });
 }
 
 let pendingSave = null;
@@ -448,6 +457,20 @@ function handleSyncPayload(data, exceptPeer = "") {
     render();
     replayCanvas();
   }
+  if (data.type === "round") {
+    state = mergeState(data.state, state, { preferRemoteLines: true });
+    ensureCurrentPlayer();
+    localStorage.setItem(roomKey(), JSON.stringify(state));
+    render();
+    replayCanvas();
+  }
+  if (data.type === "clear") {
+    if (!data.roundId || data.roundId === state.roundId) {
+      state.lines = [];
+      localStorage.setItem(roomKey(), JSON.stringify(state));
+      replayCanvas();
+    }
+  }
   if (data.type === "line") {
     applyRemoteLine(data.line);
   }
@@ -456,11 +479,12 @@ function handleSyncPayload(data, exceptPeer = "") {
   }
   applyingRemoteState = false;
 
-  if (data.type === "state") broadcastPeer(data, exceptPeer);
+  if (["state", "round", "clear"].includes(data.type)) broadcastPeer(data, exceptPeer);
 }
 
 function applyRemoteLine(line) {
   if (!line || state.lines.some((item) => item.id === line.id)) return;
+  if (line.roundId && line.roundId !== state.roundId) return;
   state.lines.push(line);
   localStorage.setItem(roomKey(), JSON.stringify(state));
   drawLine(line);
@@ -522,11 +546,19 @@ function flushRelayLines() {
   if (relayLineQueue.length) relayLineTimer = setTimeout(flushRelayLines, 90);
 }
 
+function clearRelayLineQueue() {
+  relayLineQueue = [];
+  if (relayLineTimer) {
+    clearTimeout(relayLineTimer);
+    relayLineTimer = null;
+  }
+}
+
 function relayTopicUrl() {
   return `https://ntfy.sh/drawandguess-${roomId.toLowerCase()}`;
 }
 
-function mergeState(remoteState, localState) {
+function mergeState(remoteState, localState, options = {}) {
   if (!remoteState) return localState;
   const mergedPlayers = { ...remoteState.players, ...localState.players };
   const mergedMessages = [...remoteState.messages, ...localState.messages]
@@ -541,8 +573,20 @@ function mergeState(remoteState, localState) {
     ...baseState,
     players: mergedPlayers,
     messages: mergedMessages,
-    lines: remoteState.lines.length >= localState.lines.length ? remoteState.lines : localState.lines,
+    lines: chooseLines(remoteState, localState, options),
   };
+}
+
+function chooseLines(remoteState, localState, options = {}) {
+  if (options.preferRemoteLines) return remoteState.lines || [];
+  if (remoteState.roundId && localState.roundId && remoteState.roundId !== localState.roundId) {
+    return remoteState.updatedAt >= (localState.updatedAt || 0)
+      ? remoteState.lines || []
+      : localState.lines || [];
+  }
+  return (remoteState.lines?.length || 0) >= (localState.lines?.length || 0)
+    ? remoteState.lines || []
+    : localState.lines || [];
 }
 
 function handleJoin(player) {
