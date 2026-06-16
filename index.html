@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>你画我猜 Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=20260616-fill" />
+    <link rel="stylesheet" href="./styles.css?v=20260616-icons" />
   </head>
   <body>
     <main class="app">
@@ -64,18 +64,38 @@
           <section class="board-wrap">
             <div class="toolbar" aria-label="画笔工具">
               <div class="tool-group">
-                <button id="undoStroke" class="tool-button" type="button" title="撤销">撤销</button>
-                <button id="redoStroke" class="tool-button" type="button" title="重做">重做</button>
-                <button id="toolbarClearCanvas" class="tool-button danger" type="button" title="清空双方画板">清屏</button>
+                <button id="undoStroke" class="tool-button icon-button" type="button" title="撤销" aria-label="撤销">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 5 11l4 4"/><path d="M5 11h10a4 4 0 0 1 0 8h-3"/></svg>
+                </button>
+                <button id="redoStroke" class="tool-button icon-button" type="button" title="重做" aria-label="重做">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 4 4-4 4"/><path d="M19 11H9a4 4 0 0 0 0 8h3"/></svg>
+                </button>
+                <button id="toolbarClearCanvas" class="tool-button icon-button danger" type="button" title="清空双方画板" aria-label="清屏">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/></svg>
+                </button>
               </div>
               <div class="tool-group" aria-label="笔刷类型">
-                <button class="tool-button active" type="button" data-tool="marker">马克笔</button>
-                <button class="tool-button" type="button" data-tool="pencil">铅笔</button>
-                <button class="tool-button" type="button" data-tool="highlighter">荧光笔</button>
-                <button class="tool-button" type="button" data-tool="crayon">蜡笔</button>
-                <button class="tool-button" type="button" data-tool="fill">填色</button>
-                <button class="tool-button" type="button" data-tool="eyedropper">吸管</button>
-                <button id="eraser" class="tool-button" type="button" data-tool="eraser">橡皮</button>
+                <button class="tool-button icon-button active" type="button" data-tool="marker" title="马克笔" aria-label="马克笔">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 3-1 10-10-2-2L5 17l-1 3Z"/><path d="m14 6 2-2 4 4-2 2"/><path d="M7 19h13"/></svg>
+                </button>
+                <button class="tool-button icon-button" type="button" data-tool="pencil" title="铅笔" aria-label="铅笔">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4-1 11-11-3-3L5 16l-1 4Z"/><path d="m14 7 3 3"/></svg>
+                </button>
+                <button class="tool-button icon-button" type="button" data-tool="highlighter" title="荧光笔" aria-label="荧光笔">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 16 7-7 3 3-7 7H5v-3Z"/><path d="m13 8 2-2 3 3-2 2"/><path d="M4 21h16"/></svg>
+                </button>
+                <button class="tool-button icon-button" type="button" data-tool="crayon" title="蜡笔" aria-label="蜡笔">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 20 4 17 15 6l3 3L7 20Z"/><path d="m14 7 3 3"/><path d="m17 4 3 3-2 2-3-3 2-2Z"/><path d="M5 18l2 2"/></svg>
+                </button>
+                <button class="tool-button icon-button" type="button" data-tool="fill" title="填色" aria-label="填色">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 13 7-7 8 8-7 7-8-8Z"/><path d="m8 6 8 8"/><path d="M19 15c2 2 2 4 0 4s-2-2 0-4Z"/></svg>
+                </button>
+                <button class="tool-button icon-button" type="button" data-tool="eyedropper" title="吸管" aria-label="吸管">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5"/><path d="m12 7 5 5-9 9H4v-4l8-10Z"/><path d="m13 6 2-2a2 2 0 0 1 3 3l-2 2"/></svg>
+                </button>
+                <button id="eraser" class="tool-button icon-button" type="button" data-tool="eraser" title="橡皮" aria-label="橡皮">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 15 8-8 7 7-5 5H8l-4-4Z"/><path d="m9 10 6 6"/><path d="M13 19h7"/></svg>
+                </button>
               </div>
               <div class="swatches" aria-label="颜色">
                 <button class="swatch active" type="button" data-color="#111827" style="--swatch: #111827" title="黑色"></button>
@@ -125,6 +145,6 @@
 
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="./word-bank.js?v=20260616"></script>
-    <script src="./app.js?v=20260616-fill"></script>
+    <script src="./app.js?v=20260616-icons"></script>
   </body>
 </html>
