@@ -247,6 +247,8 @@ input:focus {
   display: grid;
   grid-template-rows: auto 1fr;
   min-width: 0;
+  max-width: 100%;
+  contain: size layout paint;
   overflow: hidden;
 }
 
@@ -461,11 +463,15 @@ input:focus {
 
 .canvas-viewport {
   background: #e5e7eb;
+  box-sizing: border-box;
+  max-width: 100%;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
   padding: 14px;
   touch-action: none;
+  width: 100%;
 }
 
 canvas {
