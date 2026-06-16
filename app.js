@@ -13,6 +13,13 @@ let isHost = false;
 let peer = null;
 let connections = [];
 let applyingRemoteState = false;
+let relaySource = null;
+let relayReady = false;
+let peerReady = false;
+let lastRelayPublishAt = 0;
+let relayLineQueue = [];
+let relayLineTimer = null;
+const seenSyncEvents = new Set();
 
 const presetRoom = new URLSearchParams(window.location.search).get("room");
 const lobby = document.querySelector("#lobby");
@@ -24,6 +31,7 @@ const copyRoom = document.querySelector("#copyRoom");
 const roundTitle = document.querySelector("#roundTitle");
 const timer = document.querySelector("#timer");
 const score = document.querySelector("#score");
+const syncStatus = document.querySelector("#syncStatus");
 const roleLabel = document.querySelector("#roleLabel");
 const wordLabel = document.querySelector("#wordLabel");
 const playerList = document.querySelector("#playerList");
@@ -165,6 +173,7 @@ canvas.addEventListener("pointermove", (event) => {
   event.preventDefault();
   const nextPoint = getCanvasPoint(event);
   const line = {
+    id: randomId(),
     from: lastPoint,
     to: nextPoint,
     color: erasing ? "#ffffff" : colorPicker.value,
@@ -172,6 +181,8 @@ canvas.addEventListener("pointermove", (event) => {
   };
   state.lines.push(line);
   drawLine(line);
+  sendSync({ type: "line", line }, { relay: false });
+  queueRelayLine(line);
   lastPoint = nextPoint;
   throttleSave();
 });
@@ -258,7 +269,7 @@ function getCanvasPoint(event) {
 }
 
 function makeRoomCode() {
-  return Math.random().toString(36).slice(2, 8);
+  return Math.random().toString(36).slice(2, 12);
 }
 
 function makeMessage(author, text, type) {
@@ -291,7 +302,7 @@ function saveState() {
   localStorage.setItem(roomKey(), JSON.stringify(state));
   render();
   replayCanvas();
-  if (!applyingRemoteState) broadcastState();
+  if (!applyingRemoteState) sendSync({ type: "state", state });
 }
 
 let pendingSave = null;
@@ -301,7 +312,7 @@ function throttleSave() {
     pendingSave = null;
     state.updatedAt = Date.now();
     localStorage.setItem(roomKey(), JSON.stringify(state));
-    broadcastState();
+    sendSync({ type: "state", state }, { relay: false });
   });
 }
 
@@ -329,8 +340,11 @@ function startLocalTimer() {
 }
 
 function startPeerMode() {
+  startRelayMode();
+
   if (!window.Peer) {
-    addMessage("系统", "联网库未加载，当前是本机双窗口试玩模式", "system");
+    addMessage("系统", "WebRTC 联网库未加载，已启用 HTTP 中继同步", "system");
+    updateSyncStatus();
     return;
   }
 
@@ -343,6 +357,7 @@ function startPeerMode() {
       isHost ? "联机房间已创建，把房间码发给对方" : "正在连接对方的房间",
       "system",
     );
+    updateSyncStatus();
     if (!isHost) connectToHost(hostPeerId);
   });
 
@@ -351,7 +366,8 @@ function startPeerMode() {
   });
 
   peer.on("error", (error) => {
-    addMessage("系统", `联机暂不可用：${error.type || error.message}`, "system");
+    addMessage("系统", `WebRTC 暂不可用，继续使用 HTTP 中继：${error.type || error.message}`, "system");
+    updateSyncStatus();
   });
 }
 
@@ -365,41 +381,149 @@ function attachConnection(connection) {
   connections.push(connection);
 
   connection.on("open", () => {
+    peerReady = true;
     if (isHost) {
-      connection.send({ type: "state", state });
+      sendToPeer(connection, { type: "state", state });
     } else {
-      connection.send({ type: "join", player: state.players[clientId] });
+      sendToPeer(connection, { type: "join", player: state.players[clientId] });
     }
     addMessage("系统", isHost ? "对方已连接" : "已连接到房间", "system");
+    updateSyncStatus();
   });
 
   connection.on("data", (data) => {
-    if (data?.type === "join" && isHost) {
-      handleJoin(data.player);
-      return;
-    }
-    if (data?.type !== "state") return;
-    applyingRemoteState = true;
+    handleSyncPayload(data, connection.peer);
+  });
+
+  connection.on("close", () => {
+    connections = connections.filter((item) => item !== connection);
+    peerReady = connections.some((item) => item.open);
+    addMessage("系统", "对方已断开", "system");
+    updateSyncStatus();
+  });
+}
+
+function sendSync(payload, options = {}) {
+  const event = {
+    ...payload,
+    eventId: randomId(),
+    senderId: clientId,
+    sentAt: Date.now(),
+  };
+  seenSyncEvents.add(event.eventId);
+  broadcastPeer(event, options.exceptPeer);
+  if (options.relay !== false) publishRelay(event);
+}
+
+function broadcastPeer(event, exceptPeer = "") {
+  connections.forEach((connection) => {
+    if (connection.peer === exceptPeer || !connection.open) return;
+    sendToPeer(connection, event);
+  });
+}
+
+function sendToPeer(connection, event) {
+  try {
+    connection.send(event);
+  } catch {
+    peerReady = false;
+    updateSyncStatus();
+  }
+}
+
+function handleSyncPayload(data, exceptPeer = "") {
+  if (!data || data.senderId === clientId || seenSyncEvents.has(data.eventId)) return;
+  if (data.eventId) seenSyncEvents.add(data.eventId);
+
+  if (data.type === "join" && isHost) {
+    handleJoin(data.player);
+    return;
+  }
+
+  applyingRemoteState = true;
+  if (data.type === "state") {
     state = mergeState(data.state, state);
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
     replayCanvas();
-    applyingRemoteState = false;
-    broadcastState(connection.peer);
-  });
+  }
+  if (data.type === "line") {
+    applyRemoteLine(data.line);
+  }
+  if (data.type === "lines") {
+    data.lines?.forEach(applyRemoteLine);
+  }
+  applyingRemoteState = false;
 
-  connection.on("close", () => {
-    connections = connections.filter((item) => item !== connection);
-    addMessage("系统", "对方已断开", "system");
+  if (data.type === "state") broadcastPeer(data, exceptPeer);
+}
+
+function applyRemoteLine(line) {
+  if (!line || state.lines.some((item) => item.id === line.id)) return;
+  state.lines.push(line);
+  localStorage.setItem(roomKey(), JSON.stringify(state));
+  drawLine(line);
+}
+
+function startRelayMode() {
+  if (relaySource) relaySource.close();
+  relaySource = new EventSource(`${relayTopicUrl()}/sse?since=1s`);
+
+  relaySource.onopen = () => {
+    relayReady = true;
+    updateSyncStatus();
+    sendSync({ type: "join", player: state.players[clientId] }, { relay: true });
+  };
+
+  relaySource.onmessage = (event) => {
+    let envelope;
+    let payload;
+    try {
+      envelope = JSON.parse(event.data);
+      if (envelope.event !== "message") return;
+      payload = JSON.parse(envelope.message);
+    } catch {
+      return;
+    }
+    handleSyncPayload(payload);
+  };
+
+  relaySource.onerror = () => {
+    relayReady = false;
+    updateSyncStatus();
+  };
+}
+
+function publishRelay(event) {
+  if (!relayReady) return;
+  const now = Date.now();
+  if (event.type === "state" && now - lastRelayPublishAt < 350) return;
+  lastRelayPublishAt = now;
+  fetch(relayTopicUrl(), {
+    method: "POST",
+    body: JSON.stringify(event),
+  }).catch(() => {
+    relayReady = false;
+    updateSyncStatus();
   });
 }
 
-function broadcastState(exceptPeer = "") {
-  connections.forEach((connection) => {
-    if (connection.peer === exceptPeer || !connection.open) return;
-    connection.send({ type: "state", state });
-  });
+function queueRelayLine(line) {
+  relayLineQueue.push(line);
+  if (relayLineTimer) return;
+  relayLineTimer = setTimeout(flushRelayLines, 90);
+}
+
+function flushRelayLines() {
+  relayLineTimer = null;
+  const lines = relayLineQueue.splice(0, 24);
+  if (lines.length) sendSync({ type: "lines", lines });
+  if (relayLineQueue.length) relayLineTimer = setTimeout(flushRelayLines, 90);
+}
+
+function relayTopicUrl() {
+  return `https://ntfy.sh/drawandguess-${roomId.toLowerCase()}`;
 }
 
 function mergeState(remoteState, localState) {
@@ -433,6 +557,13 @@ function handleJoin(player) {
     ];
   }
   saveState();
+}
+
+function updateSyncStatus() {
+  const parts = [];
+  if (peerReady) parts.push("点对点已连接");
+  if (relayReady) parts.push("中继已连接");
+  syncStatus.textContent = `同步：${parts.join(" + ") || "连接中"}`;
 }
 
 function ensureCurrentPlayer() {

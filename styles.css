@@ -128,6 +128,13 @@ input:focus {
   margin: 0;
 }
 
+.sync-status {
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 6px 0 0;
+}
+
 .text-button {
   background: transparent;
   color: #2563eb;
