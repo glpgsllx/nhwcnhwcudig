@@ -295,11 +295,60 @@ input:focus {
 .icon-button svg {
   fill: none;
   height: 20px;
-  stroke: currentColor;
+  stroke: var(--icon-color, currentColor);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
   width: 20px;
+}
+
+.icon-button.active svg {
+  stroke: #fff;
+}
+
+.icon-button.danger svg {
+  stroke: currentColor;
+}
+
+.icon-marker {
+  height: 22px;
+  transform: rotate(-8deg);
+  width: 22px;
+}
+
+.icon-pencil {
+  height: 18px;
+  transform: rotate(12deg);
+  width: 18px;
+}
+
+.icon-highlighter {
+  height: 22px;
+  transform: rotate(4deg);
+  width: 22px;
+}
+
+.icon-crayon {
+  height: 21px;
+  transform: rotate(-20deg);
+  width: 21px;
+}
+
+.icon-fill {
+  height: 23px;
+  width: 23px;
+}
+
+.icon-eyedropper {
+  height: 21px;
+  transform: rotate(16deg);
+  width: 21px;
+}
+
+.icon-eraser {
+  height: 22px;
+  transform: rotate(-10deg);
+  width: 22px;
 }
 
 .tool-button:hover {
