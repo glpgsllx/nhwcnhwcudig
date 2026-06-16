@@ -256,6 +256,7 @@ input:focus {
   align-items: center;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 12px;
 }
@@ -266,18 +267,65 @@ input:focus {
   width: 52px;
 }
 
-.toolbar input[type="range"] {
-  max-width: 170px;
+.tool-group,
+.swatches {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.tool-button {
+  background: #f3f4f6;
+  color: #111827;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.tool-button:hover,
+.tool-button.active {
+  background: #111827;
+  color: #fff;
+}
+
+.swatch {
+  background: var(--swatch);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #d1d5db;
+  height: 30px;
+  min-height: 30px;
   padding: 0;
-  width: 36%;
+  width: 30px;
+}
+
+.swatch.active {
+  box-shadow: 0 0 0 3px #2563eb;
+}
+
+.zoom-controls span {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 800;
+  min-width: 46px;
+  text-align: center;
+}
+
+.canvas-viewport {
+  background: #e5e7eb;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
 }
 
 canvas {
+  background: #fff;
   display: block;
-  height: 100%;
+  height: auto;
+  margin: 0 auto;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  transform-origin: top center;
   width: 100%;
 }
 
@@ -341,6 +389,16 @@ canvas {
 
   .toolbar input[type="range"] {
     min-height: 48px;
+  }
+
+  .tool-button {
+    min-height: 44px;
+  }
+
+  .swatch {
+    height: 38px;
+    min-height: 38px;
+    width: 38px;
   }
 }
 

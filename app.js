@@ -7,7 +7,12 @@ let playerName = "";
 let state = null;
 let drawing = false;
 let lastPoint = null;
-let erasing = false;
+let currentStroke = null;
+let currentTool = "marker";
+let currentColor = "#111827";
+let brushSize = 7;
+let eraserSize = 26;
+let zoom = 1;
 let roundTicker = null;
 let isHost = false;
 let peer = null;
@@ -39,8 +44,14 @@ const startRound = document.querySelector("#startRound");
 const swapRole = document.querySelector("#swapRole");
 const clearCanvas = document.querySelector("#clearCanvas");
 const colorPicker = document.querySelector("#colorPicker");
-const sizePicker = document.querySelector("#sizePicker");
 const eraser = document.querySelector("#eraser");
+const undoStroke = document.querySelector("#undoStroke");
+const redoStroke = document.querySelector("#redoStroke");
+const zoomOut = document.querySelector("#zoomOut");
+const zoomIn = document.querySelector("#zoomIn");
+const zoomFit = document.querySelector("#zoomFit");
+const zoomLabel = document.querySelector("#zoomLabel");
+const canvasViewport = document.querySelector("#canvasViewport");
 const messages = document.querySelector("#messages");
 const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
@@ -50,6 +61,7 @@ const ctx = canvas.getContext("2d");
 ctx.lineCap = "round";
 ctx.lineJoin = "round";
 if (presetRoom) roomInput.value = sanitizeRoom(presetRoom);
+setZoom(1);
 
 joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -74,13 +86,19 @@ joinForm.addEventListener("submit", (event) => {
   copyRoom.textContent = roomId;
   render();
   replayCanvas();
+  fitCanvas();
   startLocalTimer();
   startPeerMode();
+});
+
+window.addEventListener("resize", () => {
+  if (!game.classList.contains("hidden") && zoom <= 1) fitCanvas();
 });
 
 window.addEventListener("storage", (event) => {
   if (event.key !== roomKey() || !event.newValue) return;
   state = JSON.parse(event.newValue);
+  normalizeState(state);
   ensureCurrentPlayer();
   render();
   replayCanvas();
@@ -105,6 +123,8 @@ startRound.addEventListener("click", () => {
   state.word = word;
   state.roundEndsAt = Date.now() + 60_000;
   state.lines = [];
+  state.strokes = [];
+  state.redoStrokes = [];
   clearRelayLineQueue();
   state.messages = [
     ...state.messages.slice(-30),
@@ -133,17 +153,63 @@ swapRole.addEventListener("click", () => {
 
 clearCanvas.addEventListener("click", () => {
   if (!requireDrawer()) return;
+  if (!confirm("确定清空当前画板吗？")) return;
   state.lines = [];
+  state.strokes = [];
+  state.redoStrokes = [];
   clearRelayLineQueue();
   replayCanvas();
   saveState({ broadcast: false });
   sendSync({ type: "clear", roundId: state.roundId });
 });
 
-eraser.addEventListener("click", () => {
-  erasing = !erasing;
-  eraser.textContent = erasing ? "画笔" : "橡皮";
+document.querySelectorAll("[data-tool]").forEach((button) => {
+  button.addEventListener("click", () => {
+    currentTool = button.dataset.tool;
+    setActive("[data-tool]", button);
+  });
 });
+
+document.querySelectorAll("[data-color]").forEach((button) => {
+  button.addEventListener("click", () => {
+    currentColor = button.dataset.color;
+    colorPicker.value = currentColor;
+    setActive("[data-color]", button);
+  });
+});
+
+colorPicker.addEventListener("input", () => {
+  currentColor = colorPicker.value;
+  document.querySelectorAll("[data-color]").forEach((button) => button.classList.remove("active"));
+});
+
+document.querySelectorAll("[data-size]").forEach((button) => {
+  button.addEventListener("click", () => {
+    brushSize = Number(button.dataset.size);
+    setActive("[data-size]", button);
+  });
+});
+
+document.querySelectorAll("[data-eraser-size]").forEach((button) => {
+  button.addEventListener("click", () => {
+    eraserSize = Number(button.dataset.eraserSize);
+    setActive("[data-eraser-size]", button);
+  });
+});
+
+undoStroke.addEventListener("click", () => {
+  if (!requireDrawer()) return;
+  undoLastStroke();
+});
+
+redoStroke.addEventListener("click", () => {
+  if (!requireDrawer()) return;
+  redoLastStroke();
+});
+
+zoomOut.addEventListener("click", () => setZoom(zoom - 0.15));
+zoomIn.addEventListener("click", () => setZoom(zoom + 0.15));
+zoomFit.addEventListener("click", fitCanvas);
 
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -173,21 +239,29 @@ canvas.addEventListener("pointerdown", (event) => {
   drawing = true;
   canvas.setPointerCapture(event.pointerId);
   lastPoint = getCanvasPoint(event);
+  currentStroke = createStroke();
+  state.redoStrokes = [];
 });
 
 canvas.addEventListener("pointermove", (event) => {
   if (!drawing || !isDrawer()) return;
   event.preventDefault();
   const nextPoint = getCanvasPoint(event);
+  const style = getBrushStyle();
   const line = {
     id: randomId(),
     roundId: state.roundId,
+    strokeId: currentStroke.id,
     from: lastPoint,
     to: nextPoint,
-    color: erasing ? "#ffffff" : colorPicker.value,
-    size: erasing ? Number(sizePicker.value) * 2 : Number(sizePicker.value),
+    color: style.color,
+    size: style.size,
+    tool: style.tool,
+    opacity: style.opacity,
+    seed: Math.random(),
   };
   state.lines.push(line);
+  currentStroke.lines.push(line);
   drawLine(line);
   sendSync({ type: "line", line }, { relay: false });
   queueRelayLine(line);
@@ -198,12 +272,14 @@ canvas.addEventListener("pointermove", (event) => {
 canvas.addEventListener("pointerup", () => {
   drawing = false;
   lastPoint = null;
+  finishCurrentStroke();
   saveState();
 });
 
 canvas.addEventListener("pointercancel", () => {
   drawing = false;
   lastPoint = null;
+  finishCurrentStroke();
   saveState();
 });
 
@@ -216,6 +292,8 @@ function createState() {
     roundId: randomId(),
     players: {},
     lines: [],
+    strokes: [],
+    redoStrokes: [],
     messages: [makeMessage("系统", "房间已创建", "system")],
   };
 }
@@ -261,12 +339,144 @@ function replayCanvas() {
 }
 
 function drawLine(line) {
+  ctx.save();
+  ctx.globalAlpha = line.opacity ?? 1;
+  ctx.globalCompositeOperation = "source-over";
   ctx.strokeStyle = line.color;
   ctx.lineWidth = line.size;
+  ctx.lineCap = line.tool === "highlighter" ? "butt" : "round";
+  ctx.lineJoin = "round";
   ctx.beginPath();
   ctx.moveTo(line.from.x, line.from.y);
   ctx.lineTo(line.to.x, line.to.y);
   ctx.stroke();
+  if (line.tool === "crayon") drawCrayonTexture(line);
+  ctx.restore();
+}
+
+function drawCrayonTexture(line) {
+  const jitter = (line.seed || 0.5) - 0.5;
+  ctx.globalAlpha = Math.max(0.18, (line.opacity ?? 0.8) * 0.45);
+  ctx.lineWidth = Math.max(1, line.size * 0.35);
+  for (let index = 0; index < 3; index += 1) {
+    const offset = (index - 1) * line.size * 0.18 + jitter * line.size;
+    ctx.beginPath();
+    ctx.moveTo(line.from.x + offset, line.from.y - offset);
+    ctx.lineTo(line.to.x + offset, line.to.y - offset);
+    ctx.stroke();
+  }
+}
+
+function createStroke() {
+  const style = getBrushStyle();
+  return {
+    id: randomId(),
+    roundId: state.roundId,
+    tool: style.tool,
+    color: style.color,
+    size: style.size,
+    opacity: style.opacity,
+    lines: [],
+  };
+}
+
+function finishCurrentStroke() {
+  if (!currentStroke) return;
+  if (currentStroke.lines.length) {
+    state.strokes = [...(state.strokes || []), currentStroke];
+    state.redoStrokes = [];
+  }
+  currentStroke = null;
+}
+
+function getBrushStyle() {
+  if (currentTool === "eraser") {
+    return { tool: "eraser", color: "#ffffff", size: eraserSize, opacity: 1 };
+  }
+  if (currentTool === "pencil") {
+    return { tool: "pencil", color: currentColor, size: Math.max(1, brushSize * 0.75), opacity: 0.72 };
+  }
+  if (currentTool === "highlighter") {
+    return { tool: "highlighter", color: currentColor, size: Math.max(8, brushSize * 1.9), opacity: 0.34 };
+  }
+  if (currentTool === "crayon") {
+    return { tool: "crayon", color: currentColor, size: brushSize, opacity: 0.82 };
+  }
+  return { tool: "marker", color: currentColor, size: brushSize, opacity: 1 };
+}
+
+function undoLastStroke() {
+  const stroke = (state.strokes || []).at(-1);
+  if (!stroke) return;
+  applyUndo(stroke.id);
+  sendSync({ type: "undo", strokeId: stroke.id });
+}
+
+function redoLastStroke() {
+  const stroke = (state.redoStrokes || []).at(-1);
+  if (!stroke) return;
+  applyRedo(stroke);
+  sendSync({ type: "redo", stroke });
+}
+
+function applyUndo(strokeId) {
+  const stroke = (state.strokes || []).find((item) => item.id === strokeId) || {
+    id: strokeId,
+    roundId: state.roundId,
+    lines: state.lines.filter((line) => line.strokeId === strokeId),
+  };
+  if (!stroke.lines?.length) return;
+  state.lines = state.lines.filter((line) => line.strokeId !== strokeId);
+  state.strokes = (state.strokes || []).filter((item) => item.id !== strokeId);
+  state.redoStrokes = [...(state.redoStrokes || []).filter((item) => item.id !== strokeId), stroke];
+  saveState({ broadcast: false });
+}
+
+function applyRedo(stroke) {
+  if (!stroke?.lines?.length || (stroke.roundId && stroke.roundId !== state.roundId)) return;
+  const existingLineIds = new Set(state.lines.map((line) => line.id));
+  const missingLines = stroke.lines.filter((line) => !existingLineIds.has(line.id));
+  state.lines = [...state.lines, ...missingLines];
+  if (!(state.strokes || []).some((item) => item.id === stroke.id)) {
+    state.strokes = [...(state.strokes || []), stroke];
+  }
+  state.redoStrokes = (state.redoStrokes || []).filter((item) => item.id !== stroke.id);
+  saveState({ broadcast: false });
+}
+
+function ensureStrokeForLine(line) {
+  if (!line.strokeId) return;
+  let stroke = (state.strokes || []).find((item) => item.id === line.strokeId);
+  if (!stroke) {
+    stroke = {
+      id: line.strokeId,
+      roundId: line.roundId || state.roundId,
+      tool: line.tool,
+      color: line.color,
+      size: line.size,
+      opacity: line.opacity,
+      lines: [],
+    };
+    state.strokes = [...(state.strokes || []), stroke];
+  }
+  if (!stroke.lines.some((item) => item.id === line.id)) stroke.lines.push(line);
+}
+
+function setActive(selector, activeButton) {
+  document.querySelectorAll(selector).forEach((button) => button.classList.remove("active"));
+  activeButton.classList.add("active");
+}
+
+function setZoom(nextZoom) {
+  zoom = Math.min(2.4, Math.max(0.45, nextZoom));
+  canvas.style.width = `${canvas.width * zoom}px`;
+  canvas.style.height = `${canvas.height * zoom}px`;
+  zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+}
+
+function fitCanvas() {
+  const availableWidth = Math.max(320, canvasViewport.clientWidth - 28);
+  setZoom(Math.min(1, availableWidth / canvas.width));
 }
 
 function getCanvasPoint(event) {
@@ -467,9 +677,17 @@ function handleSyncPayload(data, exceptPeer = "") {
   if (data.type === "clear") {
     if (!data.roundId || data.roundId === state.roundId) {
       state.lines = [];
+      state.strokes = [];
+      state.redoStrokes = [];
       localStorage.setItem(roomKey(), JSON.stringify(state));
       replayCanvas();
     }
+  }
+  if (data.type === "undo") {
+    applyUndo(data.strokeId);
+  }
+  if (data.type === "redo") {
+    applyRedo(data.stroke);
   }
   if (data.type === "line") {
     applyRemoteLine(data.line);
@@ -479,13 +697,16 @@ function handleSyncPayload(data, exceptPeer = "") {
   }
   applyingRemoteState = false;
 
-  if (["state", "round", "clear"].includes(data.type)) broadcastPeer(data, exceptPeer);
+  if (["state", "round", "clear", "undo", "redo"].includes(data.type)) {
+    broadcastPeer(data, exceptPeer);
+  }
 }
 
 function applyRemoteLine(line) {
   if (!line || state.lines.some((item) => item.id === line.id)) return;
   if (line.roundId && line.roundId !== state.roundId) return;
   state.lines.push(line);
+  ensureStrokeForLine(line);
   localStorage.setItem(roomKey(), JSON.stringify(state));
   drawLine(line);
 }
@@ -560,6 +781,8 @@ function relayTopicUrl() {
 
 function mergeState(remoteState, localState, options = {}) {
   if (!remoteState) return localState;
+  normalizeState(remoteState);
+  normalizeState(localState);
   const mergedPlayers = { ...remoteState.players, ...localState.players };
   const mergedMessages = [...remoteState.messages, ...localState.messages]
     .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
@@ -574,6 +797,8 @@ function mergeState(remoteState, localState, options = {}) {
     players: mergedPlayers,
     messages: mergedMessages,
     lines: chooseLines(remoteState, localState, options),
+    strokes: chooseStrokes(remoteState, localState, options),
+    redoStrokes: baseState.redoStrokes || [],
   };
 }
 
@@ -587,6 +812,18 @@ function chooseLines(remoteState, localState, options = {}) {
   return (remoteState.lines?.length || 0) >= (localState.lines?.length || 0)
     ? remoteState.lines || []
     : localState.lines || [];
+}
+
+function chooseStrokes(remoteState, localState, options = {}) {
+  if (options.preferRemoteLines) return remoteState.strokes || [];
+  if (remoteState.roundId && localState.roundId && remoteState.roundId !== localState.roundId) {
+    return remoteState.updatedAt >= (localState.updatedAt || 0)
+      ? remoteState.strokes || []
+      : localState.strokes || [];
+  }
+  return (remoteState.strokes?.length || 0) >= (localState.strokes?.length || 0)
+    ? remoteState.strokes || []
+    : localState.strokes || [];
 }
 
 function handleJoin(player) {
@@ -612,9 +849,19 @@ function updateSyncStatus() {
 
 function ensureCurrentPlayer() {
   if (!state || !playerName) return;
+  normalizeState(state);
   if (!state.players[clientId]) {
     state.players[clientId] = { id: clientId, name: playerName, score: 0, joinedAt: Date.now() };
   }
+}
+
+function normalizeState(targetState) {
+  targetState.roundId ||= randomId();
+  targetState.players ||= {};
+  targetState.lines ||= [];
+  targetState.strokes ||= [];
+  targetState.redoStrokes ||= [];
+  targetState.messages ||= [];
 }
 
 function peerIdForRoom(value) {

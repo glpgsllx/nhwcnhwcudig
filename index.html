@@ -63,11 +63,48 @@
 
           <section class="board-wrap">
             <div class="toolbar" aria-label="画笔工具">
-              <input id="colorPicker" type="color" value="#111827" title="颜色" />
-              <input id="sizePicker" type="range" min="2" max="24" value="7" title="笔粗" />
-              <button id="eraser" type="button">橡皮</button>
+              <div class="tool-group">
+                <button id="undoStroke" class="tool-button" type="button" title="撤销">撤销</button>
+                <button id="redoStroke" class="tool-button" type="button" title="重做">重做</button>
+              </div>
+              <div class="tool-group" aria-label="笔刷类型">
+                <button class="tool-button active" type="button" data-tool="marker">马克笔</button>
+                <button class="tool-button" type="button" data-tool="pencil">铅笔</button>
+                <button class="tool-button" type="button" data-tool="highlighter">荧光笔</button>
+                <button class="tool-button" type="button" data-tool="crayon">蜡笔</button>
+                <button id="eraser" class="tool-button" type="button" data-tool="eraser">橡皮</button>
+              </div>
+              <div class="swatches" aria-label="颜色">
+                <button class="swatch active" type="button" data-color="#111827" style="--swatch: #111827" title="黑色"></button>
+                <button class="swatch" type="button" data-color="#ef4444" style="--swatch: #ef4444" title="红色"></button>
+                <button class="swatch" type="button" data-color="#2563eb" style="--swatch: #2563eb" title="蓝色"></button>
+                <button class="swatch" type="button" data-color="#16a34a" style="--swatch: #16a34a" title="绿色"></button>
+                <button class="swatch" type="button" data-color="#facc15" style="--swatch: #facc15" title="黄色"></button>
+                <button class="swatch" type="button" data-color="#ec4899" style="--swatch: #ec4899" title="粉色"></button>
+                <button class="swatch" type="button" data-color="#8b5cf6" style="--swatch: #8b5cf6" title="紫色"></button>
+                <input id="colorPicker" type="color" value="#111827" title="自定义颜色" />
+              </div>
+              <div class="tool-group" aria-label="笔粗">
+                <button class="tool-button" type="button" data-size="3">细</button>
+                <button class="tool-button active" type="button" data-size="7">中</button>
+                <button class="tool-button" type="button" data-size="13">粗</button>
+                <button class="tool-button" type="button" data-size="22">超粗</button>
+              </div>
+              <div class="tool-group" aria-label="橡皮大小">
+                <button class="tool-button" type="button" data-eraser-size="12">小擦</button>
+                <button class="tool-button active" type="button" data-eraser-size="26">中擦</button>
+                <button class="tool-button" type="button" data-eraser-size="44">大擦</button>
+              </div>
+              <div class="tool-group zoom-controls" aria-label="缩放">
+                <button id="zoomOut" class="tool-button" type="button">-</button>
+                <span id="zoomLabel">100%</span>
+                <button id="zoomIn" class="tool-button" type="button">+</button>
+                <button id="zoomFit" class="tool-button" type="button">适应</button>
+              </div>
             </div>
-            <canvas id="board" width="960" height="640"></canvas>
+            <div id="canvasViewport" class="canvas-viewport">
+              <canvas id="board" width="960" height="640"></canvas>
+            </div>
           </section>
 
           <aside class="chat-panel">
@@ -83,6 +120,6 @@
 
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="./word-bank.js?v=20260616"></script>
-    <script src="./app.js?v=20260616-round-clear"></script>
+    <script src="./app.js?v=20260616-tools"></script>
   </body>
 </html>
