@@ -10,6 +10,7 @@ let lastPoint = null;
 let currentStroke = null;
 let currentTool = "marker";
 let currentColor = "#111827";
+let currentOpacity = 1;
 let brushSize = 7;
 let eraserSize = 26;
 let zoom = 1;
@@ -45,6 +46,8 @@ const swapRole = document.querySelector("#swapRole");
 const clearCanvas = document.querySelector("#clearCanvas");
 const toolbarClearCanvas = document.querySelector("#toolbarClearCanvas");
 const colorPicker = document.querySelector("#colorPicker");
+const opacityRange = document.querySelector("#opacityRange");
+const opacityLabel = document.querySelector("#opacityLabel");
 const eraser = document.querySelector("#eraser");
 const undoStroke = document.querySelector("#undoStroke");
 const redoStroke = document.querySelector("#redoStroke");
@@ -59,6 +62,7 @@ const activePointers = new Map();
 let pinching = false;
 let pinchStartDistance = 0;
 let pinchStartZoom = 1;
+let pinchLastCenter = null;
 
 ctx.lineCap = "round";
 ctx.lineJoin = "round";
@@ -188,6 +192,11 @@ colorPicker.addEventListener("input", () => {
   document.querySelectorAll("[data-color]").forEach((button) => button.classList.remove("active"));
 });
 
+opacityRange.addEventListener("input", () => {
+  currentOpacity = Number(opacityRange.value) / 100;
+  opacityLabel.textContent = `${opacityRange.value}%`;
+});
+
 document.querySelectorAll("[data-size]").forEach((button) => {
   button.addEventListener("click", () => {
     brushSize = Number(button.dataset.size);
@@ -253,9 +262,17 @@ canvas.addEventListener("pointerdown", (event) => {
   }
   if (!isDrawer()) return;
   if (pinching) return;
+  lastPoint = getCanvasPoint(event);
+  if (currentTool === "eyedropper") {
+    pickCanvasColor(lastPoint);
+    return;
+  }
+  if (currentTool === "fill") {
+    fillAtPoint(lastPoint);
+    return;
+  }
   drawing = true;
   canvas.setPointerCapture(event.pointerId);
-  lastPoint = getCanvasPoint(event);
   currentStroke = createStroke();
   state.redoStrokes = [];
 });
@@ -295,9 +312,13 @@ canvas.addEventListener("pointermove", (event) => {
 canvas.addEventListener("pointerup", (event) => {
   activePointers.delete(event.pointerId);
   if (pinching) {
-    if (activePointers.size < 2) pinching = false;
+    if (activePointers.size < 2) {
+      pinching = false;
+      pinchLastCenter = null;
+    }
     return;
   }
+  if (!drawing && !currentStroke) return;
   drawing = false;
   lastPoint = null;
   finishCurrentStroke();
@@ -306,7 +327,11 @@ canvas.addEventListener("pointerup", (event) => {
 
 canvas.addEventListener("pointercancel", (event) => {
   activePointers.delete(event.pointerId);
-  if (pinching && activePointers.size < 2) pinching = false;
+  if (pinching && activePointers.size < 2) {
+    pinching = false;
+    pinchLastCenter = null;
+  }
+  if (!drawing && !currentStroke) return;
   drawing = false;
   lastPoint = null;
   finishCurrentStroke();
@@ -365,7 +390,20 @@ function replayCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  state?.lines.forEach(drawLine);
+  const drawnLineIds = new Set();
+  state?.strokes?.forEach((stroke) => {
+    if (stroke.type === "fill") {
+      applyFillOperation(stroke);
+      return;
+    }
+    stroke.lines?.forEach((line) => {
+      drawLine(line);
+      drawnLineIds.add(line.id);
+    });
+  });
+  state?.lines
+    ?.filter((line) => !drawnLineIds.has(line.id))
+    .forEach(drawLine);
 }
 
 function drawLine(line) {
@@ -397,6 +435,87 @@ function drawCrayonTexture(line) {
   }
 }
 
+function fillAtPoint(point) {
+  const fill = {
+    id: randomId(),
+    type: "fill",
+    roundId: state.roundId,
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    color: currentColor,
+    opacity: currentOpacity,
+    tolerance: 28,
+  };
+  const changed = applyFillOperation(fill);
+  if (!changed) return;
+  state.strokes = [...(state.strokes || []), fill];
+  state.redoStrokes = [];
+  saveState({ broadcast: false });
+  sendSync({ type: "fill", fill });
+}
+
+function applyFillOperation(fill) {
+  if (!fill || (fill.roundId && fill.roundId !== state.roundId)) return false;
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const width = image.width;
+  const height = image.height;
+  const x = Math.max(0, Math.min(width - 1, Math.round(fill.x)));
+  const y = Math.max(0, Math.min(height - 1, Math.round(fill.y)));
+  const targetIndex = (y * width + x) * 4;
+  const target = [
+    data[targetIndex],
+    data[targetIndex + 1],
+    data[targetIndex + 2],
+    data[targetIndex + 3],
+  ];
+  const fillColor = hexToRgb(fill.color);
+  const alpha = Math.min(1, Math.max(0.05, fill.opacity ?? 1));
+  const tolerance = fill.tolerance ?? 28;
+  if (colorDistance(target, [...fillColor, 255]) <= 1 && alpha >= 0.98) return false;
+
+  const visited = new Uint8Array(width * height);
+  const stack = [y * width + x];
+  let changed = 0;
+
+  while (stack.length) {
+    const pixel = stack.pop();
+    if (visited[pixel]) continue;
+    visited[pixel] = 1;
+
+    const index = pixel * 4;
+    const current = [data[index], data[index + 1], data[index + 2], data[index + 3]];
+    if (colorDistance(current, target) > tolerance) continue;
+
+    data[index] = Math.round(fillColor[0] * alpha + data[index] * (1 - alpha));
+    data[index + 1] = Math.round(fillColor[1] * alpha + data[index + 1] * (1 - alpha));
+    data[index + 2] = Math.round(fillColor[2] * alpha + data[index + 2] * (1 - alpha));
+    data[index + 3] = 255;
+    changed += 1;
+
+    const px = pixel % width;
+    if (px > 0) stack.push(pixel - 1);
+    if (px < width - 1) stack.push(pixel + 1);
+    if (pixel >= width) stack.push(pixel - width);
+    if (pixel < width * (height - 1)) stack.push(pixel + width);
+  }
+
+  if (!changed) return false;
+  ctx.putImageData(image, 0, 0);
+  return true;
+}
+
+function pickCanvasColor(point) {
+  const x = Math.max(0, Math.min(canvas.width - 1, Math.round(point.x)));
+  const y = Math.max(0, Math.min(canvas.height - 1, Math.round(point.y)));
+  const [red, green, blue] = ctx.getImageData(x, y, 1, 1).data;
+  currentColor = rgbToHex(red, green, blue);
+  colorPicker.value = currentColor;
+  document.querySelectorAll("[data-color]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.color?.toLowerCase() === currentColor);
+  });
+}
+
 function createStroke() {
   const style = getBrushStyle();
   return {
@@ -424,15 +543,25 @@ function getBrushStyle() {
     return { tool: "eraser", color: "#ffffff", size: eraserSize, opacity: 1 };
   }
   if (currentTool === "pencil") {
-    return { tool: "pencil", color: currentColor, size: Math.max(1, brushSize * 0.75), opacity: 0.72 };
+    return {
+      tool: "pencil",
+      color: currentColor,
+      size: Math.max(1, brushSize * 0.75),
+      opacity: Math.min(currentOpacity, 0.72),
+    };
   }
   if (currentTool === "highlighter") {
-    return { tool: "highlighter", color: currentColor, size: Math.max(8, brushSize * 1.9), opacity: 0.34 };
+    return {
+      tool: "highlighter",
+      color: currentColor,
+      size: Math.max(8, brushSize * 1.9),
+      opacity: Math.min(currentOpacity, 0.34),
+    };
   }
   if (currentTool === "crayon") {
-    return { tool: "crayon", color: currentColor, size: brushSize, opacity: 0.82 };
+    return { tool: "crayon", color: currentColor, size: brushSize, opacity: Math.min(currentOpacity, 0.82) };
   }
-  return { tool: "marker", color: currentColor, size: brushSize, opacity: 1 };
+  return { tool: "marker", color: currentColor, size: brushSize, opacity: currentOpacity };
 }
 
 function undoLastStroke() {
@@ -455,15 +584,26 @@ function applyUndo(strokeId) {
     roundId: state.roundId,
     lines: state.lines.filter((line) => line.strokeId === strokeId),
   };
-  if (!stroke.lines?.length) return;
-  state.lines = state.lines.filter((line) => line.strokeId !== strokeId);
+  if (stroke.type !== "fill" && !stroke.lines?.length) return;
+  if (stroke.type !== "fill") {
+    state.lines = state.lines.filter((line) => line.strokeId !== strokeId);
+  }
   state.strokes = (state.strokes || []).filter((item) => item.id !== strokeId);
   state.redoStrokes = [...(state.redoStrokes || []).filter((item) => item.id !== strokeId), stroke];
   saveState({ broadcast: false });
 }
 
 function applyRedo(stroke) {
-  if (!stroke?.lines?.length || (stroke.roundId && stroke.roundId !== state.roundId)) return;
+  if (!stroke || (stroke.roundId && stroke.roundId !== state.roundId)) return;
+  if (stroke.type === "fill") {
+    if (!(state.strokes || []).some((item) => item.id === stroke.id)) {
+      state.strokes = [...(state.strokes || []), stroke];
+    }
+    state.redoStrokes = (state.redoStrokes || []).filter((item) => item.id !== stroke.id);
+    saveState({ broadcast: false });
+    return;
+  }
+  if (!stroke.lines?.length) return;
   const existingLineIds = new Set(state.lines.map((line) => line.id));
   const missingLines = stroke.lines.filter((line) => !existingLineIds.has(line.id));
   state.lines = [...state.lines, ...missingLines];
@@ -526,6 +666,7 @@ function beginPinch() {
   const points = [...activePointers.values()];
   pinchStartDistance = getPointDistance(points[0], points[1]);
   pinchStartZoom = zoom;
+  pinchLastCenter = getPointCenter(points[0], points[1]);
   pinching = pinchStartDistance > 0;
 }
 
@@ -533,11 +674,24 @@ function updatePinchZoom() {
   const points = [...activePointers.values()];
   if (points.length < 2 || !pinchStartDistance) return;
   const distance = getPointDistance(points[0], points[1]);
+  const center = getPointCenter(points[0], points[1]);
+  if (pinchLastCenter) {
+    canvasViewport.scrollLeft -= center.x - pinchLastCenter.x;
+    canvasViewport.scrollTop -= center.y - pinchLastCenter.y;
+  }
+  pinchLastCenter = center;
   setZoom(pinchStartZoom * (distance / pinchStartDistance));
 }
 
 function getPointDistance(first, second) {
   return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function getPointCenter(first, second) {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
 }
 
 function getCanvasPoint(event) {
@@ -612,6 +766,28 @@ function isDrawer() {
 
 function normalize(value) {
   return value.trim().replace(/\s+/g, "").toLowerCase();
+}
+
+function hexToRgb(hex) {
+  const value = hex.replace("#", "");
+  return [
+    Number.parseInt(value.slice(0, 2), 16),
+    Number.parseInt(value.slice(2, 4), 16),
+    Number.parseInt(value.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex(red, green, blue) {
+  return `#${[red, green, blue].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function colorDistance(first, second) {
+  return Math.hypot(
+    first[0] - second[0],
+    first[1] - second[1],
+    first[2] - second[2],
+    (first[3] ?? 255) - (second[3] ?? 255),
+  );
 }
 
 function startLocalTimer() {
@@ -756,9 +932,12 @@ function handleSyncPayload(data, exceptPeer = "") {
   if (data.type === "lines") {
     data.lines?.forEach(applyRemoteLine);
   }
+  if (data.type === "fill") {
+    applyRemoteFill(data.fill);
+  }
   applyingRemoteState = false;
 
-  if (["state", "round", "clear", "undo", "redo"].includes(data.type)) {
+  if (["state", "round", "clear", "undo", "redo", "fill"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
 }
@@ -770,6 +949,15 @@ function applyRemoteLine(line) {
   ensureStrokeForLine(line);
   localStorage.setItem(roomKey(), JSON.stringify(state));
   drawLine(line);
+}
+
+function applyRemoteFill(fill) {
+  if (!fill || (fill.roundId && fill.roundId !== state.roundId)) return;
+  if ((state.strokes || []).some((item) => item.id === fill.id)) return;
+  state.strokes = [...(state.strokes || []), fill];
+  state.redoStrokes = [];
+  localStorage.setItem(roomKey(), JSON.stringify(state));
+  replayCanvas();
 }
 
 function startRelayMode() {

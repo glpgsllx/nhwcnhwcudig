@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>你画我猜 Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=20260616-touch" />
+    <link rel="stylesheet" href="./styles.css?v=20260616-fill" />
   </head>
   <body>
     <main class="app">
@@ -73,6 +73,8 @@
                 <button class="tool-button" type="button" data-tool="pencil">铅笔</button>
                 <button class="tool-button" type="button" data-tool="highlighter">荧光笔</button>
                 <button class="tool-button" type="button" data-tool="crayon">蜡笔</button>
+                <button class="tool-button" type="button" data-tool="fill">填色</button>
+                <button class="tool-button" type="button" data-tool="eyedropper">吸管</button>
                 <button id="eraser" class="tool-button" type="button" data-tool="eraser">橡皮</button>
               </div>
               <div class="swatches" aria-label="颜色">
@@ -96,6 +98,11 @@
                 <button class="tool-button active" type="button" data-eraser-size="26" title="中号橡皮">橡皮中</button>
                 <button class="tool-button" type="button" data-eraser-size="44" title="大号橡皮">橡皮大</button>
               </div>
+              <label class="opacity-control">
+                透明度
+                <input id="opacityRange" type="range" min="15" max="100" value="100" />
+                <span id="opacityLabel">100%</span>
+              </label>
               <div class="zoom-status" aria-label="缩放比例">
                 缩放 <span id="zoomLabel">100%</span>
               </div>
@@ -118,6 +125,6 @@
 
     <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
     <script src="./word-bank.js?v=20260616"></script>
-    <script src="./app.js?v=20260616-touch"></script>
+    <script src="./app.js?v=20260616-fill"></script>
   </body>
 </html>

@@ -265,6 +265,11 @@ input:focus {
   width: 52px;
 }
 
+.toolbar input[type="range"] {
+  accent-color: #2563eb;
+  width: 120px;
+}
+
 .tool-group,
 .swatches {
   align-items: center;
@@ -311,6 +316,26 @@ input:focus {
 
 .swatch.active {
   box-shadow: 0 0 0 3px #2563eb;
+}
+
+.opacity-control {
+  align-items: center;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #374151;
+  display: flex;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.opacity-control span {
+  min-width: 38px;
+  text-align: right;
 }
 
 .zoom-status {
