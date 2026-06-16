@@ -49,7 +49,7 @@ button:hover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 48px;
-  min-height: 100vh;
+  min-height: 100dvh;
   align-items: center;
   max-width: 1050px;
   margin: 0 auto;
@@ -112,7 +112,7 @@ input:focus {
 .game {
   display: grid;
   grid-template-rows: auto 1fr;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .topbar {
@@ -248,7 +248,7 @@ input:focus {
   grid-template-rows: auto 1fr;
   min-width: 0;
   max-width: 100%;
-  contain: size layout paint;
+  contain: layout paint;
   overflow: hidden;
 }
 
@@ -543,7 +543,17 @@ canvas {
   }
 
   .play-area {
-    grid-template-rows: auto minmax(520px, 62vh) 320px;
+    grid-template-rows: auto auto auto;
+    gap: 12px;
+  }
+
+  .board-wrap {
+    order: -1;
+    min-height: min(66svh, 720px);
+  }
+
+  .canvas-viewport {
+    min-height: min(58svh, 640px);
   }
 }
 
@@ -590,7 +600,15 @@ canvas {
   }
 
   .play-area {
-    grid-template-rows: auto minmax(430px, 58vh) 320px;
+    grid-template-rows: auto auto auto;
+  }
+
+  .board-wrap {
+    min-height: min(60svh, 560px);
+  }
+
+  .canvas-viewport {
+    min-height: min(52svh, 480px);
   }
 
   .guess-form {
