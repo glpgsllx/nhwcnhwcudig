@@ -39,6 +39,12 @@ button:hover {
   background: #1d4ed8;
 }
 
+button:disabled {
+  background: #e2e8f0;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 .app {
   min-height: 100%;
 }
@@ -196,6 +202,41 @@ button:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.select-intro {
+  display: grid;
+  gap: 10px;
+  padding: 22px 4px 10px;
+  text-align: center;
+}
+
+.select-wait-shell {
+  align-items: center;
+  background: #2563eb;
+  color: #fff;
+  justify-content: center;
+  text-align: center;
+}
+
+.select-wait-shell p {
+  color: #dbeafe;
+  max-width: 280px;
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+  border: 6px solid rgba(255, 255, 255, 0.24);
+  border-top-color: #fff;
+  border-radius: 999px;
+  height: 96px;
+  width: 96px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .mystery-card {
   aspect-ratio: 1;
   background: #2563eb;
@@ -249,6 +290,16 @@ button:hover {
 
 .result-badge.trophy {
   background: #f59e0b;
+}
+
+.result-shell.failed .result-badge {
+  background: #cbd5e1;
+}
+
+.result-stats,
+.final-records {
+  text-align: left;
+  width: 100%;
 }
 
 .lobby {

@@ -204,6 +204,8 @@ function renderJoinRoomPage() {
 
 function renderRoomPage() {
   const players = state ? Object.values(state.players) : [];
+  const totalRounds = state?.totalRounds || 3;
+  const category = state?.category || "默认词库";
   return `
     <section class="mobile-shell room-shell">
       ${shellHeader("房间等待")}
@@ -218,8 +220,12 @@ function renderRoomPage() {
           ${players.map((player) => `<li>${sanitizeHtml(player.name)}${player.id === state.drawerId ? " · 画手" : ""}</li>`).join("") || "<li>等待玩家加入</li>"}
         </ul>
       </div>
+      <div class="shell-card">
+        <h2>游戏设置</h2>
+        <p>${totalRounds} 轮 · ${sanitizeHtml(category)}</p>
+      </div>
       <div class="shell-actions">
-        <button type="button" id="roomStartGame">开始游戏</button>
+        <button type="button" id="roomStartGame" ${isHost ? "" : "disabled"}>${isHost ? "开始游戏" : "等待房主开始"}</button>
         <button class="secondary" type="button" data-nav="home">返回首页</button>
       </div>
     </section>
@@ -227,10 +233,22 @@ function renderRoomPage() {
 }
 
 function renderSelectWordPage() {
-  const options = pickWords(4);
+  const options = state?.wordOptions?.length ? state.wordOptions : pickWords(4);
+  if (isDrawer()) {
+    return `
+      <section class="mobile-shell select-wait-shell">
+        <div class="spinner"></div>
+        <h1>等待选词...</h1>
+        <p>当前轮到对方盲选词语；选好后你会自动进入画画页面。</p>
+      </section>
+    `;
+  }
   return `
     <section class="mobile-shell">
-      ${shellHeader("盲选词语", "room")}
+      <div class="select-intro">
+        <h1>盲选词语</h1>
+        <p>词语已隐藏，请凭直觉选择 1 张卡片。对方将根据你选中的隐藏词作画。</p>
+      </div>
       <div class="select-grid">
         ${options.map((word) => `<button class="mystery-card" type="button" data-word="${sanitizeHtml(word)}"><span>?</span><small>神秘卡片</small></button>`).join("")}
       </div>
@@ -252,25 +270,45 @@ function renderLibraryPage() {
 }
 
 function renderResultPage() {
+  const result = state?.result || {};
+  const success = result.success !== false;
+  const currentRound = state?.roundNumber || 1;
+  const totalRounds = state?.totalRounds || 3;
   return `
-    <section class="mobile-shell result-shell">
-      <div class="result-badge">✓</div>
-      <h1>回合结束</h1>
-      <p>当前分数：${score.textContent || "0 : 0"}</p>
+    <section class="mobile-shell result-shell ${success ? "success" : "failed"}">
+      <div class="result-badge">${success ? "✓" : "×"}</div>
+      <h1>${success ? "回合成功！" : "回合失败"}</h1>
+      <p>正确答案：<strong>${sanitizeHtml(result.word || state?.lastWord || "未知")}</strong></p>
+      <div class="shell-card result-stats">
+        <p>猜测耗时：${result.timeUsed ?? 60} 秒</p>
+        <p>当前进度：${currentRound} / ${totalRounds} 轮</p>
+        <p>当前分数：${score.textContent || "0 : 0"}</p>
+      </div>
       <div class="shell-actions">
-        <button type="button" data-nav="select-word">下一轮</button>
-        <button class="secondary" type="button" data-nav="final-result">查看最终成绩</button>
+        <button type="button" id="resultPrimary">${currentRound >= totalRounds ? "查看最终成绩" : "进入下一轮"}</button>
+        <button class="secondary" type="button" data-nav="home">返回首页</button>
       </div>
     </section>
   `;
 }
 
 function renderFinalResultPage() {
+  const history = state?.history || [];
   return `
-    <section class="mobile-shell result-shell">
+    <section class="mobile-shell result-shell final-shell">
       <div class="result-badge trophy">★</div>
       <h1>游戏结束</h1>
       <p>${score.textContent || "0 : 0"}</p>
+      <div class="shell-card final-records">
+        <h2>对战记录</h2>
+        <ul class="shell-list">
+          ${
+            history.length
+              ? history.map((item) => `<li>第 ${item.round} 轮 · ${sanitizeHtml(item.word)} · ${item.success ? "猜中" : "失败"}</li>`).join("")
+              : "<li>暂无记录</li>"
+          }
+        </ul>
+      </div>
       <div class="shell-actions">
         <button type="button" data-nav="create-room">再来一局</button>
         <button class="secondary" type="button" data-nav="home">返回首页</button>
@@ -285,7 +323,10 @@ function attachShellHandlers(page) {
   });
   shell.querySelector("#createRoomForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    enterRoom(shell.querySelector("#createName").value, "");
+    enterRoom(shell.querySelector("#createName").value, "", {
+      category: shell.querySelector("#createCategory").value,
+      totalRounds: Number(shell.querySelector("#createRounds").value) || 3,
+    });
     navigate("room");
   });
   shell.querySelector("#joinRoomForm")?.addEventListener("submit", (event) => {
@@ -297,8 +338,8 @@ function attachShellHandlers(page) {
     await navigator.clipboard?.writeText(inviteUrl());
   });
   shell.querySelector("#roomStartGame")?.addEventListener("click", () => {
-    if (!state) return;
-    navigate("select-word");
+    if (!state || !isHost) return;
+    beginWordSelection();
   });
   shell.querySelectorAll("[data-word]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -306,9 +347,16 @@ function attachShellHandlers(page) {
       navigate("game");
     });
   });
+  shell.querySelector("#resultPrimary")?.addEventListener("click", () => {
+    if ((state?.roundNumber || 1) >= (state?.totalRounds || 3)) {
+      finishGame();
+    } else {
+      beginWordSelection();
+    }
+  });
 }
 
-function enterRoom(name, requestedRoom = "") {
+function enterRoom(name, requestedRoom = "", options = {}) {
   playerName = name.trim();
   const enteredRoom = sanitizeRoom(requestedRoom);
   roomId = (enteredRoom || makeRoomCode()).toUpperCase();
@@ -316,6 +364,14 @@ function enterRoom(name, requestedRoom = "") {
   if (!playerName) return false;
 
   state = loadState() || createState();
+  if (!enteredRoom) {
+    state.phase = "room";
+    state.category = options.category || state.category || "默认词库";
+    state.totalRounds = options.totalRounds || state.totalRounds || 3;
+    state.roundNumber = 0;
+    state.history = [];
+    state.result = null;
+  }
   state.players[clientId] = {
     id: clientId,
     name: playerName,
@@ -333,14 +389,34 @@ function enterRoom(name, requestedRoom = "") {
   return true;
 }
 
+function beginWordSelection() {
+  requirePlayer();
+  state.phase = "select-word";
+  state.wordOptions = pickWords(4);
+  state.roundNumber = (state.roundNumber || 0) + 1;
+  state.result = null;
+  state.word = "";
+  state.roundEndsAt = 0;
+  state.lines = [];
+  state.strokes = [];
+  state.redoStrokes = [];
+  clearRelayLineQueue();
+  replayCanvas();
+  saveState();
+  navigate("select-word");
+}
+
 function startNewRound(word) {
   requirePlayer();
+  state.phase = "game";
   state.roundId = randomId();
   state.word = word;
+  state.lastWord = word;
   state.roundEndsAt = Date.now() + 60_000;
   state.lines = [];
   state.strokes = [];
   state.redoStrokes = [];
+  state.result = null;
   clearRelayLineQueue();
   state.messages = [
     ...state.messages.slice(-30),
@@ -351,8 +427,58 @@ function startNewRound(word) {
   sendSync({ type: "round", state });
 }
 
+function finishRound(success) {
+  if (!state || state.phase === "result" || state.phase === "final-result") return;
+  const word = state.word || state.lastWord || "";
+  const timeUsed = state.roundEndsAt ? Math.min(60, Math.max(0, Math.round((60_000 - (state.roundEndsAt - Date.now())) / 1000))) : 60;
+  state.phase = "result";
+  state.result = {
+    success,
+    word,
+    timeUsed: success ? timeUsed : 60,
+    round: state.roundNumber || 1,
+  };
+  state.history = [
+    ...(state.history || []),
+    {
+      round: state.roundNumber || 1,
+      word,
+      success,
+      guess: success ? word : "",
+    },
+  ];
+  state.word = "";
+  state.roundEndsAt = 0;
+  saveState({ broadcast: false });
+  sendSync({ type: "result", state });
+  navigate("result");
+}
+
+function finishGame() {
+  if (!state) return;
+  state.phase = "final-result";
+  saveState();
+  navigate("final-result");
+}
+
 function pickWords(count) {
   return [...WORDS].sort(() => Math.random() - 0.5).slice(0, count);
+}
+
+function routeForPhase() {
+  if (!state?.phase) return "";
+  if (state.phase === "room") return "room";
+  if (state.phase === "select-word") return "select-word";
+  if (state.phase === "game") return "game";
+  if (state.phase === "result") return "result";
+  if (state.phase === "final-result") return "final-result";
+  return "";
+}
+
+function syncRouteFromPhase() {
+  const route = routeForPhase();
+  if (!route || currentRoute() === route) return;
+  navigate(route);
 }
 
 copyRoom.addEventListener("click", async () => {
@@ -457,7 +583,7 @@ canvasViewport.addEventListener(
 guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = guessInput.value.trim();
-  if (!text) return;
+  if (!text || !state) return;
   guessInput.value = "";
 
   const normalizedGuess = normalize(text);
@@ -468,12 +594,11 @@ guessForm.addEventListener("submit", (event) => {
       ...state.messages.slice(-30),
       makeMessage(playerName, `答对了：${state.word}`, "correct"),
     ];
-    state.word = "";
-    state.roundEndsAt = 0;
+    finishRound(true);
   } else {
     state.messages = [...state.messages.slice(-30), makeMessage(playerName, text, "message")];
+    saveState();
   }
-  saveState();
 });
 
 canvas.addEventListener("pointerdown", (event) => {
@@ -572,8 +697,16 @@ canvas.addEventListener("pointercancel", (event) => {
 function createState() {
   return {
     updatedAt: Date.now(),
+    phase: "room",
+    category: "默认词库",
+    totalRounds: 3,
+    roundNumber: 0,
     drawerId: "",
     word: "",
+    lastWord: "",
+    wordOptions: [],
+    result: null,
+    history: [],
     roundEndsAt: 0,
     roundId: randomId(),
     players: {},
@@ -993,7 +1126,9 @@ function saveState(options = {}) {
   localStorage.setItem(roomKey(), JSON.stringify(state));
   render();
   replayCanvas();
-  if (currentRoute() === "room") showRoute("room");
+  if (currentRoute() === "room" || currentRoute() === "select-word" || currentRoute() === "result" || currentRoute() === "final-result") {
+    showRoute(currentRoute());
+  }
   if (!applyingRemoteState && options.broadcast !== false) sendSync({ type: "state", state });
 }
 
@@ -1050,7 +1185,12 @@ function colorDistance(first, second) {
 
 function startLocalTimer() {
   clearInterval(roundTicker);
-  roundTicker = setInterval(render, 300);
+  roundTicker = setInterval(() => {
+    render();
+    if (state?.phase === "game" && state.roundEndsAt && Date.now() >= state.roundEndsAt) {
+      finishRound(false);
+    }
+  }, 300);
 }
 
 function startPeerMode() {
@@ -1161,6 +1301,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
     replayCanvas();
+    syncRouteFromPhase();
   }
   if (data.type === "round") {
     state = mergeState(data.state, state, { preferRemoteLines: true });
@@ -1168,7 +1309,15 @@ function handleSyncPayload(data, exceptPeer = "") {
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
     replayCanvas();
-    if (currentRoute() !== "game") navigate("game");
+    navigate("game");
+  }
+  if (data.type === "result") {
+    state = mergeState(data.state, state, { preferRemoteLines: true });
+    ensureCurrentPlayer();
+    localStorage.setItem(roomKey(), JSON.stringify(state));
+    render();
+    replayCanvas();
+    navigate("result");
   }
   if (data.type === "clear") {
     if (!data.roundId || data.roundId === state.roundId) {
@@ -1196,7 +1345,7 @@ function handleSyncPayload(data, exceptPeer = "") {
   }
   applyingRemoteState = false;
 
-  if (["state", "round", "clear", "undo", "redo", "fill"].includes(data.type)) {
+  if (["state", "round", "result", "clear", "undo", "redo", "fill"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
 }
@@ -1364,6 +1513,14 @@ function ensureCurrentPlayer() {
 }
 
 function normalizeState(targetState) {
+  targetState.phase ||= "room";
+  targetState.category ||= "默认词库";
+  targetState.totalRounds ||= 3;
+  targetState.roundNumber ||= 0;
+  targetState.lastWord ||= targetState.word || "";
+  targetState.wordOptions ||= [];
+  targetState.result ||= null;
+  targetState.history ||= [];
   targetState.roundId ||= randomId();
   targetState.players ||= {};
   targetState.lines ||= [];
