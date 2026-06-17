@@ -28,6 +28,7 @@ let relayLineTimer = null;
 const seenSyncEvents = new Set();
 
 const presetRoom = new URLSearchParams(window.location.search).get("room");
+const shell = document.querySelector("#shell");
 const lobby = document.querySelector("#lobby");
 const game = document.querySelector("#game");
 const joinForm = document.querySelector("#joinForm");
@@ -71,33 +72,14 @@ ctx.lineCap = "round";
 ctx.lineJoin = "round";
 if (presetRoom) roomInput.value = sanitizeRoom(presetRoom);
 setZoom(1);
+showRoute(presetRoom ? "join-room" : currentRoute());
+
+window.addEventListener("hashchange", () => showRoute(currentRoute()));
 
 joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  playerName = nameInput.value.trim();
-  const enteredRoom = sanitizeRoom(roomInput.value);
-  roomId = (enteredRoom || makeRoomCode()).toUpperCase();
-  isHost = !enteredRoom;
-  if (!playerName) return;
-
-  state = loadState() || createState();
-  state.players[clientId] = {
-    id: clientId,
-    name: playerName,
-    score: state.players[clientId]?.score || 0,
-    joinedAt: Date.now(),
-  };
-  if (!state.drawerId) state.drawerId = clientId;
-  saveState();
-
-  lobby.classList.add("hidden");
-  game.classList.remove("hidden");
-  copyRoom.textContent = roomId;
-  render();
-  replayCanvas();
-  fitCanvas();
-  startLocalTimer();
-  startPeerMode();
+  enterRoom(nameInput.value, roomInput.value);
+  navigate("game");
 });
 
 window.addEventListener("resize", () => {
@@ -111,6 +93,7 @@ window.addEventListener("storage", (event) => {
   ensureCurrentPlayer();
   render();
   replayCanvas();
+  if (currentRoute() === "room") showRoute("room");
 });
 
 window.addEventListener("beforeunload", () => {
@@ -120,14 +103,238 @@ window.addEventListener("beforeunload", () => {
   saveState();
 });
 
-copyRoom.addEventListener("click", async () => {
-  await navigator.clipboard?.writeText(inviteUrl());
-  addMessage("系统", "邀请链接已复制，发给对方打开就能进房间", "system");
-});
+function currentRoute() {
+  return window.location.hash.replace(/^#\/?/, "") || "home";
+}
 
-startRound.addEventListener("click", () => {
+function navigate(route) {
+  window.location.hash = route;
+  showRoute(route);
+}
+
+function showRoute(route) {
+  const page = route || "home";
+  const isGamePage = page === "game";
+  shell.classList.toggle("hidden", isGamePage);
+  lobby.classList.add("hidden");
+  game.classList.toggle("hidden", !isGamePage);
+  if (isGamePage) {
+    if (state) {
+      copyRoom.textContent = roomId;
+      render();
+      replayCanvas();
+      fitCanvas();
+    }
+    return;
+  }
+  shell.innerHTML = renderShellPage(page);
+  attachShellHandlers(page);
+}
+
+function renderShellPage(page) {
+  const route = page.split("?")[0];
+  if (route === "library") return renderLibraryPage();
+  if (route === "create-room") return renderCreateRoomPage();
+  if (route === "join-room") return renderJoinRoomPage();
+  if (route === "room") return renderRoomPage();
+  if (route === "select-word") return renderSelectWordPage();
+  if (route === "result") return renderResultPage();
+  if (route === "final-result") return renderFinalResultPage();
+  return renderHomePage();
+}
+
+function shellHeader(title, backRoute = "home") {
+  return `
+    <header class="shell-header">
+      <button class="shell-icon-button" type="button" data-nav="${backRoute}" aria-label="返回">‹</button>
+      <strong>${title}</strong>
+      <span></span>
+    </header>
+  `;
+}
+
+function renderHomePage() {
+  return `
+    <section class="mobile-shell home-shell">
+      <div class="home-logo">画</div>
+      <h1>你画我猜</h1>
+      <p>双人互动 · 浏览器联机 · 画板工具箱</p>
+      <div class="shell-actions">
+        <button type="button" data-nav="create-room">创建房间</button>
+        <button class="secondary" type="button" data-nav="join-room">加入房间</button>
+        <button class="ghost" type="button" data-nav="library">词库管理</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderCreateRoomPage() {
+  return `
+    <section class="mobile-shell">
+      ${shellHeader("创建房间")}
+      <form id="createRoomForm" class="shell-form">
+        <label>昵称<input id="createName" maxlength="12" placeholder="比如 小陈" required /></label>
+        <label>词库分类
+          <select id="createCategory">
+            <option>默认词库</option>
+            <option>日常生活</option>
+            <option>情侣专属</option>
+          </select>
+        </label>
+        <label>游戏轮次<input id="createRounds" type="number" min="1" max="9" value="3" /></label>
+        <button type="submit">确认创建</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderJoinRoomPage() {
+  const defaultRoom = presetRoom || roomInput.value || "";
+  return `
+    <section class="mobile-shell">
+      ${shellHeader("加入房间")}
+      <form id="joinRoomForm" class="shell-form">
+        <label>房间码<input id="joinRoomCode" maxlength="16" value="${sanitizeHtml(defaultRoom)}" placeholder="输入房间码" required /></label>
+        <label>昵称<input id="joinName" maxlength="12" placeholder="比如 小陈" required /></label>
+        <button type="submit">进入房间</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderRoomPage() {
+  const players = state ? Object.values(state.players) : [];
+  return `
+    <section class="mobile-shell room-shell">
+      ${shellHeader("房间等待")}
+      <div class="room-code-card">
+        <span>房间号</span>
+        <strong>${roomId || "----"}</strong>
+        <button type="button" id="shellCopyRoom">邀请好友</button>
+      </div>
+      <div class="shell-card">
+        <h2>玩家</h2>
+        <ul class="shell-list">
+          ${players.map((player) => `<li>${sanitizeHtml(player.name)}${player.id === state.drawerId ? " · 画手" : ""}</li>`).join("") || "<li>等待玩家加入</li>"}
+        </ul>
+      </div>
+      <div class="shell-actions">
+        <button type="button" id="roomStartGame">开始游戏</button>
+        <button class="secondary" type="button" data-nav="home">返回首页</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderSelectWordPage() {
+  const options = pickWords(4);
+  return `
+    <section class="mobile-shell">
+      ${shellHeader("盲选词语", "room")}
+      <div class="select-grid">
+        ${options.map((word) => `<button class="mystery-card" type="button" data-word="${sanitizeHtml(word)}"><span>?</span><small>神秘卡片</small></button>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderLibraryPage() {
+  return `
+    <section class="mobile-shell">
+      ${shellHeader("词库管理")}
+      <div class="shell-card">
+        <h2>默认词库</h2>
+        <p>当前使用内置词库，约 ${WORDS.length} 个词。后续可以把分类词库接到这里。</p>
+      </div>
+      <textarea class="word-preview" readonly>${WORDS.slice(0, 80).join("、")}</textarea>
+    </section>
+  `;
+}
+
+function renderResultPage() {
+  return `
+    <section class="mobile-shell result-shell">
+      <div class="result-badge">✓</div>
+      <h1>回合结束</h1>
+      <p>当前分数：${score.textContent || "0 : 0"}</p>
+      <div class="shell-actions">
+        <button type="button" data-nav="select-word">下一轮</button>
+        <button class="secondary" type="button" data-nav="final-result">查看最终成绩</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderFinalResultPage() {
+  return `
+    <section class="mobile-shell result-shell">
+      <div class="result-badge trophy">★</div>
+      <h1>游戏结束</h1>
+      <p>${score.textContent || "0 : 0"}</p>
+      <div class="shell-actions">
+        <button type="button" data-nav="create-room">再来一局</button>
+        <button class="secondary" type="button" data-nav="home">返回首页</button>
+      </div>
+    </section>
+  `;
+}
+
+function attachShellHandlers(page) {
+  shell.querySelectorAll("[data-nav]").forEach((button) => {
+    button.addEventListener("click", () => navigate(button.dataset.nav));
+  });
+  shell.querySelector("#createRoomForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    enterRoom(shell.querySelector("#createName").value, "");
+    navigate("room");
+  });
+  shell.querySelector("#joinRoomForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    enterRoom(shell.querySelector("#joinName").value, shell.querySelector("#joinRoomCode").value);
+    navigate("room");
+  });
+  shell.querySelector("#shellCopyRoom")?.addEventListener("click", async () => {
+    await navigator.clipboard?.writeText(inviteUrl());
+  });
+  shell.querySelector("#roomStartGame")?.addEventListener("click", () => {
+    if (!state) return;
+    navigate("select-word");
+  });
+  shell.querySelectorAll("[data-word]").forEach((button) => {
+    button.addEventListener("click", () => {
+      startNewRound(button.dataset.word);
+      navigate("game");
+    });
+  });
+}
+
+function enterRoom(name, requestedRoom = "") {
+  playerName = name.trim();
+  const enteredRoom = sanitizeRoom(requestedRoom);
+  roomId = (enteredRoom || makeRoomCode()).toUpperCase();
+  isHost = !enteredRoom;
+  if (!playerName) return false;
+
+  state = loadState() || createState();
+  state.players[clientId] = {
+    id: clientId,
+    name: playerName,
+    score: state.players[clientId]?.score || 0,
+    joinedAt: Date.now(),
+  };
+  if (!state.drawerId) state.drawerId = clientId;
+  saveState();
+  copyRoom.textContent = roomId;
+  render();
+  replayCanvas();
+  fitCanvas();
+  startLocalTimer();
+  startPeerMode();
+  return true;
+}
+
+function startNewRound(word) {
   requirePlayer();
-  const word = WORDS[Math.floor(Math.random() * WORDS.length)];
   state.roundId = randomId();
   state.word = word;
   state.roundEndsAt = Date.now() + 60_000;
@@ -142,6 +349,19 @@ startRound.addEventListener("click", () => {
   replayCanvas();
   saveState({ broadcast: false });
   sendSync({ type: "round", state });
+}
+
+function pickWords(count) {
+  return [...WORDS].sort(() => Math.random() - 0.5).slice(0, count);
+}
+
+copyRoom.addEventListener("click", async () => {
+  await navigator.clipboard?.writeText(inviteUrl());
+  addMessage("系统", "邀请链接已复制，发给对方打开就能进房间", "system");
+});
+
+startRound.addEventListener("click", () => {
+  startNewRound(pickWords(1)[0]);
 });
 
 swapRole.addEventListener("click", () => {
@@ -773,6 +993,7 @@ function saveState(options = {}) {
   localStorage.setItem(roomKey(), JSON.stringify(state));
   render();
   replayCanvas();
+  if (currentRoute() === "room") showRoute("room");
   if (!applyingRemoteState && options.broadcast !== false) sendSync({ type: "state", state });
 }
 
@@ -947,6 +1168,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
     replayCanvas();
+    if (currentRoute() !== "game") navigate("game");
   }
   if (data.type === "clear") {
     if (!data.roundId || data.roundId === state.roundId) {
@@ -1161,6 +1383,15 @@ function randomId() {
 
 function sanitizeRoom(value) {
   return value.trim().replace(/[^a-z0-9]/gi, "").slice(0, 16).toUpperCase();
+}
+
+function sanitizeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function inviteUrl() {
