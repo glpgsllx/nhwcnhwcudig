@@ -538,19 +538,20 @@ canvas {
   margin-top: 12px;
 }
 
-@media (max-width: 980px) {
-  .lobby,
+@media (min-width: 761px) and (max-width: 980px) {
   .play-area {
-    grid-template-columns: 1fr;
-  }
-
-  .play-area {
-    grid-template-rows: auto auto auto;
+    grid-template-columns: 220px minmax(0, 1fr) 240px;
     gap: 12px;
   }
 
+  .side-panel,
+  .chat-panel {
+    max-height: calc(100dvh - 170px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .board-wrap {
-    order: -1;
     min-height: min(66svh, 720px);
   }
 
@@ -585,28 +586,20 @@ canvas {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .lobby,
   .play-area {
-    padding: 12px;
-  }
-
-  .topbar {
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px;
-  }
-
-  .scoreboard {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .play-area {
     grid-template-rows: auto auto auto;
+    gap: 12px;
     overflow: hidden;
   }
 
   .board-wrap {
+    order: -1;
     min-height: min(44svh, 420px);
   }
 
@@ -623,5 +616,22 @@ canvas {
 
   .guess-form {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .lobby,
+  .play-area {
+    padding: 12px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .scoreboard {
+    flex-direction: column;
   }
 }
