@@ -11,7 +11,9 @@
   box-sizing: border-box;
 }
 
+html,
 body {
+  height: 100%;
   margin: 0;
   min-height: 100vh;
   overscroll-behavior: none;
@@ -38,7 +40,7 @@ button:hover {
 }
 
 .app {
-  min-height: 100vh;
+  min-height: 100%;
 }
 
 .hidden {
@@ -601,14 +603,22 @@ canvas {
 
   .play-area {
     grid-template-rows: auto auto auto;
+    overflow: hidden;
   }
 
   .board-wrap {
-    min-height: min(60svh, 560px);
+    min-height: min(44svh, 420px);
   }
 
   .canvas-viewport {
-    min-height: min(52svh, 480px);
+    min-height: min(36svh, 360px);
+  }
+
+  .side-panel,
+  .chat-panel {
+    max-height: min(18svh, 180px);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .guess-form {
