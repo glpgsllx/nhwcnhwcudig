@@ -298,8 +298,8 @@ function renderLibraryPage() {
 function renderResultPage() {
   const result = state?.result || {};
   const success = result.success !== false;
-  const currentRound = state?.roundNumber || 1;
-  const totalRounds = state?.totalRounds || 3;
+  const currentTurn = state?.roundNumber || 1;
+  const totalTurnCount = totalTurns();
   const scoreText = formatScore();
   return `
     <section class="mobile-shell result-shell ${success ? "success" : "failed"}">
@@ -308,11 +308,11 @@ function renderResultPage() {
       <p>正确答案：<strong>${sanitizeHtml(result.word || state?.lastWord || "未知")}</strong></p>
       <div class="shell-card result-stats">
         <p>猜测耗时：${result.timeUsed ?? 60} 秒</p>
-        <p>当前进度：${currentRound} / ${totalRounds} 轮</p>
+        <p>当前进度：${roundProgressText()}</p>
         <p>当前分数：${scoreText}</p>
       </div>
       <div class="shell-actions">
-        <button type="button" id="resultPrimary" ${isHost ? "" : "disabled"}>${isHost ? (currentRound >= totalRounds ? "查看最终成绩" : "进入下一轮") : "等待房主继续"}</button>
+        <button type="button" id="resultPrimary" ${isHost ? "" : "disabled"}>${isHost ? (currentTurn >= totalTurnCount ? "查看最终成绩" : "进入下一轮") : "等待房主继续"}</button>
         <button class="secondary" type="button" data-nav="home">返回首页</button>
       </div>
     </section>
@@ -389,7 +389,7 @@ function attachShellHandlers(page) {
   });
   shell.querySelector("#resultPrimary")?.addEventListener("click", () => {
     if (!isHost) return;
-    if ((state?.roundNumber || 1) >= (state?.totalRounds || 3)) {
+    if ((state?.roundNumber || 1) >= totalTurns()) {
       finishGame();
     } else {
       beginWordSelection();
@@ -532,6 +532,14 @@ function pickWords(count) {
 function formatScore() {
   const players = Object.values(state?.players || {}).sort((a, b) => a.joinedAt - b.joinedAt);
   return players.map((player) => player.score || 0).join(" : ") || "0 : 0";
+}
+
+function totalTurns() {
+  return (state?.totalRounds || 3) * 2;
+}
+
+function roundProgressText() {
+  return `${state?.roundNumber || 1} / ${totalTurns()} 次`;
 }
 
 function routeForPhase() {
@@ -854,7 +862,7 @@ function render() {
         : "等待玩家";
   timer.textContent = `${secondsLeft}s`;
   score.textContent = compactGame
-    ? `第 ${state.roundNumber || 1} 轮`
+    ? `第 ${state.roundNumber || 1}/${totalTurns()} 次`
     : players.map((player) => player.score).join(" : ") || "0 : 0";
   roleLabel.textContent = drawerMode ? "画手" : "猜词";
   wordLabel.textContent = drawerMode

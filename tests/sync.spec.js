@@ -65,8 +65,8 @@ async function completeRound({ host, guest, drawer, guesser, selector, wrongGues
   const word = (await drawerPage.locator("#roundTitle").textContent()).trim();
   expect(word).not.toContain("？");
   await expect(guesserPage.locator("#roundTitle")).toContainText("？");
-  await expect(drawerPage.locator("#score")).toContainText(`第 ${roundNumber} 轮`);
-  await expect(guesserPage.locator("#score")).toContainText(`第 ${roundNumber} 轮`);
+  await expect(drawerPage.locator("#score")).toContainText(`第 ${roundNumber}/6 次`);
+  await expect(guesserPage.locator("#score")).toContainText(`第 ${roundNumber}/6 次`);
 
   await drawLine(drawerPage);
   await expect.poll(() => nonWhitePixels(guesserPage), { timeout: 5000 }).toBeGreaterThan(20);
@@ -85,7 +85,7 @@ async function completeRound({ host, guest, drawer, guesser, selector, wrongGues
   return { word, drawerName, guesserName };
 }
 
-test("host and guest can complete three synced rounds with alternating drawers", async ({ browser }) => {
+test("host and guest can complete three back-and-forth rounds", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -149,9 +149,42 @@ test("host and guest can complete three synced rounds with alternating drawers",
     roundNumber: 3,
   });
 
+  await host.getByRole("button", { name: "进入下一轮" }).click();
+  await completeRound({
+    host,
+    guest,
+    drawer: "guest",
+    guesser: "host",
+    selector: host,
+    wrongGuess: "桌子",
+    roundNumber: 4,
+  });
+
+  await host.getByRole("button", { name: "进入下一轮" }).click();
+  await completeRound({
+    host,
+    guest,
+    drawer: "host",
+    guesser: "guest",
+    selector: guest,
+    wrongGuess: "飞机",
+    roundNumber: 5,
+  });
+
+  await host.getByRole("button", { name: "进入下一轮" }).click();
+  await completeRound({
+    host,
+    guest,
+    drawer: "guest",
+    guesser: "host",
+    selector: host,
+    wrongGuess: "小狗",
+    roundNumber: 6,
+  });
+
   await host.getByRole("button", { name: "查看最终成绩" }).click();
   await expect(host.getByText("游戏结束")).toBeVisible({ timeout: 5000 });
   await expect(guest.getByText("游戏结束")).toBeVisible({ timeout: 5000 });
-  await expect(host.locator(".final-records li")).toHaveCount(3);
-  await expect(guest.locator(".final-records li")).toHaveCount(3);
+  await expect(host.locator(".final-records li")).toHaveCount(6);
+  await expect(guest.locator(".final-records li")).toHaveCount(6);
 });
