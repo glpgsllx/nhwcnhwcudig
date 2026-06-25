@@ -89,13 +89,17 @@ window.addEventListener("resize", () => {
 
 window.addEventListener("storage", (event) => {
   if (event.key !== roomKey() || !event.newValue) return;
+  const routeBeforeSync = currentRoute();
   state = JSON.parse(event.newValue);
   normalizeState(state);
   ensureCurrentPlayer();
   render();
   replayCanvas();
   syncRouteFromPhase();
-  if (["room", "select-word", "result", "final-result"].includes(currentRoute())) showRoute(currentRoute());
+  const routeAfterSync = currentRoute();
+  if (routeAfterSync === routeBeforeSync && ["room", "select-word"].includes(routeAfterSync)) {
+    showRoute(routeAfterSync);
+  }
 });
 
 window.addEventListener("beforeunload", () => {
@@ -296,6 +300,7 @@ function renderResultPage() {
   const success = result.success !== false;
   const currentRound = state?.roundNumber || 1;
   const totalRounds = state?.totalRounds || 3;
+  const scoreText = formatScore();
   return `
     <section class="mobile-shell result-shell ${success ? "success" : "failed"}">
       <div class="result-badge">${success ? "✓" : "×"}</div>
@@ -304,10 +309,10 @@ function renderResultPage() {
       <div class="shell-card result-stats">
         <p>猜测耗时：${result.timeUsed ?? 60} 秒</p>
         <p>当前进度：${currentRound} / ${totalRounds} 轮</p>
-        <p>当前分数：${score.textContent || "0 : 0"}</p>
+        <p>当前分数：${scoreText}</p>
       </div>
       <div class="shell-actions">
-        <button type="button" id="resultPrimary">${currentRound >= totalRounds ? "查看最终成绩" : "进入下一轮"}</button>
+        <button type="button" id="resultPrimary" ${isHost ? "" : "disabled"}>${isHost ? (currentRound >= totalRounds ? "查看最终成绩" : "进入下一轮") : "等待房主继续"}</button>
         <button class="secondary" type="button" data-nav="home">返回首页</button>
       </div>
     </section>
@@ -316,11 +321,12 @@ function renderResultPage() {
 
 function renderFinalResultPage() {
   const history = state?.history || [];
+  const scoreText = formatScore();
   return `
     <section class="mobile-shell result-shell final-shell">
       <div class="result-badge trophy">★</div>
       <h1>游戏结束</h1>
-      <p>${score.textContent || "0 : 0"}</p>
+      <p>${scoreText}</p>
       <div class="shell-card final-records">
         <h2>对战记录</h2>
         <ul class="shell-list">
@@ -427,6 +433,8 @@ function enterRoom(name, requestedRoom = "", options = {}) {
 function beginWordSelection() {
   requirePlayer();
   if (!isHost) return;
+  if (!["room", "result"].includes(state.phase)) return;
+  if (state.phase === "result") rotateDrawer();
   state.phase = "select-word";
   state.wordOptions = pickWords(4);
   state.roundNumber = (state.roundNumber || 0) + 1;
@@ -436,16 +444,25 @@ function beginWordSelection() {
   state.lines = [];
   state.strokes = [];
   state.redoStrokes = [];
+  state.boardVersion = (state.boardVersion || 0) + 1;
   clearRelayLineQueue();
   replayCanvas();
   saveState({ broadcast: false });
-  sendSync({ type: "select", state });
+  sendSync({ type: "select", state, boardVersion: state.boardVersion });
   navigate("select-word");
+}
+
+function rotateDrawer() {
+  const players = Object.values(state.players || {}).sort((a, b) => a.joinedAt - b.joinedAt);
+  if (players.length < 2) return;
+  const currentIndex = Math.max(0, players.findIndex((player) => player.id === state.drawerId));
+  state.drawerId = players[(currentIndex + 1) % players.length].id;
 }
 
 function startNewRound(word) {
   requirePlayer();
   if (isDrawer()) return;
+  if (state.phase !== "select-word") return;
   state.phase = "game";
   state.roundId = randomId();
   state.word = word;
@@ -455,6 +472,7 @@ function startNewRound(word) {
   state.lines = [];
   state.strokes = [];
   state.redoStrokes = [];
+  state.boardVersion = (state.boardVersion || 0) + 1;
   state.result = null;
   clearRelayLineQueue();
   state.messages = [
@@ -468,6 +486,7 @@ function startNewRound(word) {
 
 function finishRound(success) {
   if (!state || state.phase === "result" || state.phase === "final-result") return;
+  if (!success && !isHost) return;
   const word = state.word || state.lastWord || "";
   const resultId = `${state.roundId}:${success ? "success" : "failed"}`;
   if (state.result?.id === resultId) return;
@@ -499,6 +518,7 @@ function finishRound(success) {
 
 function finishGame() {
   if (!state) return;
+  if (!isHost || state.phase !== "result") return;
   state.phase = "final-result";
   saveState({ broadcast: false });
   sendSync({ type: "final", state });
@@ -507,6 +527,11 @@ function finishGame() {
 
 function pickWords(count) {
   return [...WORDS].sort(() => Math.random() - 0.5).slice(0, count);
+}
+
+function formatScore() {
+  const players = Object.values(state?.players || {}).sort((a, b) => a.joinedAt - b.joinedAt);
+  return players.map((player) => player.score || 0).join(" : ") || "0 : 0";
 }
 
 function routeForPhase() {
@@ -525,17 +550,54 @@ function syncRouteFromPhase() {
   navigate(route);
 }
 
+function phaseRank(phase) {
+  return {
+    room: 0,
+    "select-word": 1,
+    game: 2,
+    result: 3,
+    "final-result": 4,
+  }[phase] ?? 0;
+}
+
+function isAuthorizedDrawerEvent(data) {
+  return Boolean(data?.senderId && state?.drawerId && data.senderId === state.drawerId);
+}
+
+function shouldAcceptFlowState(remoteState) {
+  if (!remoteState) return false;
+  normalizeState(remoteState);
+  normalizeState(state);
+  const remoteRound = remoteState.roundNumber || 0;
+  const localRound = state.roundNumber || 0;
+  if (remoteRound < localRound) return false;
+  if (remoteRound > localRound) return true;
+  return phaseRank(remoteState.phase) >= phaseRank(state.phase);
+}
+
 copyRoom.addEventListener("click", async () => {
   await navigator.clipboard?.writeText(inviteUrl());
   addMessage("系统", "邀请链接已复制，发给对方打开就能进房间", "system");
 });
 
 startRound.addEventListener("click", () => {
-  startNewRound(pickWords(1)[0]);
+  if (!isHost) {
+    addMessage("系统", "只有房主可以推进游戏", "system");
+    return;
+  }
+  if (!["room", "result"].includes(state?.phase)) {
+    addMessage("系统", "本轮正在进行，不能直接换题", "system");
+    return;
+  }
+  beginWordSelection();
 });
 
 swapRole.addEventListener("click", () => {
   requirePlayer();
+  if (!isHost || state.phase !== "room") {
+    addMessage("系统", "只能由房主在等待房间调整角色", "system");
+    return;
+  }
   const players = Object.keys(state.players);
   if (players.length < 2) {
     addMessage("系统", "至少两个人进入房间后才能交换画手", "system");
@@ -559,10 +621,11 @@ function clearBoard() {
   state.lines = [];
   state.strokes = [];
   state.redoStrokes = [];
+  state.boardVersion = (state.boardVersion || 0) + 1;
   clearRelayLineQueue();
   replayCanvas();
   saveState({ broadcast: false });
-  sendSync({ type: "clear", roundId: state.roundId });
+  sendSync({ type: "clear", roundId: state.roundId, boardVersion: state.boardVersion });
 }
 
 document.querySelectorAll("[data-tool]").forEach((button) => {
@@ -885,8 +948,9 @@ function fillAtPoint(point) {
   if (!changed) return;
   state.strokes = [...(state.strokes || []), fill];
   state.redoStrokes = [];
+  state.boardVersion = (state.boardVersion || 0) + 1;
   saveState({ broadcast: false });
-  sendSync({ type: "fill", fill });
+  sendSync({ type: "fill", fill, boardVersion: state.boardVersion });
 }
 
 function applyFillOperation(fill) {
@@ -1003,14 +1067,14 @@ function undoLastStroke() {
   const stroke = (state.strokes || []).at(-1);
   if (!stroke) return;
   applyUndo(stroke.id);
-  sendSync({ type: "undo", strokeId: stroke.id });
+  sendSync({ type: "undo", strokeId: stroke.id, boardVersion: state.boardVersion });
 }
 
 function redoLastStroke() {
   const stroke = (state.redoStrokes || []).at(-1);
   if (!stroke) return;
   applyRedo(stroke);
-  sendSync({ type: "redo", stroke });
+  sendSync({ type: "redo", stroke, boardVersion: state.boardVersion });
 }
 
 function applyUndo(strokeId) {
@@ -1025,6 +1089,7 @@ function applyUndo(strokeId) {
   }
   state.strokes = (state.strokes || []).filter((item) => item.id !== strokeId);
   state.redoStrokes = [...(state.redoStrokes || []).filter((item) => item.id !== strokeId), stroke];
+  state.boardVersion = (state.boardVersion || 0) + 1;
   saveState({ broadcast: false });
 }
 
@@ -1035,6 +1100,7 @@ function applyRedo(stroke) {
       state.strokes = [...(state.strokes || []), stroke];
     }
     state.redoStrokes = (state.redoStrokes || []).filter((item) => item.id !== stroke.id);
+    state.boardVersion = (state.boardVersion || 0) + 1;
     saveState({ broadcast: false });
     return;
   }
@@ -1046,6 +1112,7 @@ function applyRedo(stroke) {
     state.strokes = [...(state.strokes || []), stroke];
   }
   state.redoStrokes = (state.redoStrokes || []).filter((item) => item.id !== stroke.id);
+  state.boardVersion = (state.boardVersion || 0) + 1;
   saveState({ broadcast: false });
 }
 
@@ -1197,7 +1264,7 @@ function saveState(options = {}) {
   localStorage.setItem(roomKey(), JSON.stringify(state));
   render();
   replayCanvas();
-  if (currentRoute() === "room" || currentRoute() === "select-word" || currentRoute() === "result" || currentRoute() === "final-result") {
+  if (currentRoute() === "room" || currentRoute() === "select-word") {
     showRoute(currentRoute());
   }
   if (!applyingRemoteState && options.broadcast !== false) sendSync({ type: "state", state });
@@ -1383,7 +1450,11 @@ function handleSyncPayload(data, exceptPeer = "") {
     syncRouteFromPhase();
   }
   if (data.type === "select") {
-    state = adoptFlowState(data.state);
+    if (!shouldAcceptFlowState(data.state)) {
+      applyingRemoteState = false;
+      return;
+    }
+    state = adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
@@ -1391,6 +1462,10 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("select-word");
   }
   if (data.type === "round") {
+    if (!shouldAcceptFlowState(data.state)) {
+      applyingRemoteState = false;
+      return;
+    }
     state = adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
@@ -1403,6 +1478,14 @@ function handleSyncPayload(data, exceptPeer = "") {
       applyingRemoteState = false;
       return;
     }
+    if (state?.phase === "result" && state.roundId === data.state?.roundId && state.result?.success && data.state?.result?.success === false) {
+      applyingRemoteState = false;
+      return;
+    }
+    if (!shouldAcceptFlowState(data.state)) {
+      applyingRemoteState = false;
+      return;
+    }
     state = adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
@@ -1411,6 +1494,10 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("result");
   }
   if (data.type === "final") {
+    if (!shouldAcceptFlowState(data.state)) {
+      applyingRemoteState = false;
+      return;
+    }
     state = adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
@@ -1419,32 +1506,63 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("final-result");
   }
   if (data.type === "clear") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
     if (!data.roundId || data.roundId === state.roundId) {
       state.lines = [];
       state.strokes = [];
       state.redoStrokes = [];
+      state.boardVersion = Math.max(state.boardVersion || 0, data.boardVersion || 0);
       localStorage.setItem(roomKey(), JSON.stringify(state));
       replayCanvas();
     }
   }
   if (data.type === "undo") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
     applyUndo(data.strokeId);
+    state.boardVersion = Math.max(state.boardVersion || 0, data.boardVersion || 0);
+    localStorage.setItem(roomKey(), JSON.stringify(state));
   }
   if (data.type === "redo") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
     applyRedo(data.stroke);
+    state.boardVersion = Math.max(state.boardVersion || 0, data.boardVersion || 0);
+    localStorage.setItem(roomKey(), JSON.stringify(state));
   }
   if (data.type === "line") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
     applyRemoteLine(data.line);
   }
   if (data.type === "lines") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
     data.lines?.forEach(applyRemoteLine);
   }
   if (data.type === "fill") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
     applyRemoteFill(data.fill);
+    state.boardVersion = Math.max(state.boardVersion || 0, data.boardVersion || 0);
+    localStorage.setItem(roomKey(), JSON.stringify(state));
   }
   applyingRemoteState = false;
 
-  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "fill"].includes(data.type)) {
+  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "line", "lines", "fill"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
 }
@@ -1545,13 +1663,22 @@ function mergeState(remoteState, localState, options = {}) {
     .sort((a, b) => a.createdAt - b.createdAt)
     .slice(-40);
 
+  const remoteRank = phaseRank(remoteState.phase);
+  const localRank = phaseRank(localState.phase);
   const baseState =
-    remoteState.updatedAt >= (localState.updatedAt || 0) ? remoteState : localState;
+    remoteRank > localRank
+      ? remoteState
+      : remoteRank < localRank
+        ? localState
+        : remoteState.updatedAt >= (localState.updatedAt || 0)
+          ? remoteState
+          : localState;
 
   return {
     ...baseState,
     players: mergedPlayers,
     messages: mergedMessages,
+    boardVersion: Math.max(remoteState.boardVersion || 0, localState.boardVersion || 0),
     lines: chooseLines(remoteState, localState, options),
     strokes: chooseStrokes(remoteState, localState, options),
     redoStrokes: baseState.redoStrokes || [],
@@ -1569,6 +1696,7 @@ function adoptFlowState(remoteState, options = {}) {
       .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(-40),
+    boardVersion: Math.max(remoteState.boardVersion || 0, state.boardVersion || 0),
     lines: chooseLines(remoteState, state, options),
     strokes: chooseStrokes(remoteState, state, options),
     redoStrokes: remoteState.redoStrokes || [],
@@ -1591,6 +1719,11 @@ function mergePlayers(remotePlayers = {}, localPlayers = {}) {
 
 function chooseLines(remoteState, localState, options = {}) {
   if (options.preferRemoteLines) return remoteState.lines || [];
+  if ((remoteState.boardVersion || 0) !== (localState.boardVersion || 0)) {
+    return (remoteState.boardVersion || 0) > (localState.boardVersion || 0)
+      ? remoteState.lines || []
+      : localState.lines || [];
+  }
   if (remoteState.roundId && localState.roundId && remoteState.roundId !== localState.roundId) {
     return remoteState.updatedAt >= (localState.updatedAt || 0)
       ? remoteState.lines || []
@@ -1603,6 +1736,11 @@ function chooseLines(remoteState, localState, options = {}) {
 
 function chooseStrokes(remoteState, localState, options = {}) {
   if (options.preferRemoteLines) return remoteState.strokes || [];
+  if ((remoteState.boardVersion || 0) !== (localState.boardVersion || 0)) {
+    return (remoteState.boardVersion || 0) > (localState.boardVersion || 0)
+      ? remoteState.strokes || []
+      : localState.strokes || [];
+  }
   if (remoteState.roundId && localState.roundId && remoteState.roundId !== localState.roundId) {
     return remoteState.updatedAt >= (localState.updatedAt || 0)
       ? remoteState.strokes || []
@@ -1650,6 +1788,7 @@ function normalizeState(targetState) {
   targetState.lastWord ||= targetState.word || "";
   targetState.wordOptions ||= [];
   targetState.hintVisible ||= false;
+  targetState.boardVersion ||= 0;
   targetState.result ||= null;
   targetState.history ||= [];
   targetState.roundId ||= randomId();
