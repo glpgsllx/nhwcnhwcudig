@@ -885,55 +885,7 @@ canvas {
   margin-top: 12px;
 }
 
-@media (min-width: 761px) and (max-width: 980px) {
-  .play-area {
-    grid-template-columns: 220px minmax(0, 1fr) 240px;
-    gap: 12px;
-  }
-
-  .side-panel,
-  .chat-panel {
-    max-height: calc(100dvh - 170px);
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .board-wrap {
-    min-height: min(66svh, 720px);
-  }
-
-  .canvas-viewport {
-    min-height: min(58svh, 640px);
-  }
-}
-
-@media (pointer: coarse) {
-  .toolbar {
-    gap: 14px;
-    padding: 14px;
-  }
-
-  .toolbar input[type="color"] {
-    height: 48px;
-    width: 60px;
-  }
-
-  .toolbar input[type="range"] {
-    min-height: 48px;
-  }
-
-  .tool-button {
-    min-height: 44px;
-  }
-
-  .swatch {
-    height: 38px;
-    min-height: 38px;
-    width: 38px;
-  }
-}
-
-@media (max-width: 760px) {
+@media (max-width: 980px) {
   .lobby,
   .play-area {
     grid-template-columns: 1fr;
@@ -945,7 +897,7 @@ canvas {
   }
 
   .topbar {
-    min-height: 90px;
+    min-height: 86px;
     padding: 14px 18px;
   }
 
@@ -957,7 +909,7 @@ canvas {
   .topbar h2 {
     font-size: 24px;
     left: 50%;
-    max-width: 38vw;
+    max-width: 42vw;
     overflow: hidden;
     position: absolute;
     text-align: center;
@@ -977,31 +929,85 @@ canvas {
   }
 
   .play-area {
-    grid-template-rows: minmax(0, 1fr) auto auto;
     gap: 12px;
-    min-height: calc(100dvh - 90px);
-    overflow: visible;
+    grid-template-rows: auto auto;
+    min-height: calc(100dvh - 86px);
+    overflow: auto;
     padding: 12px;
+    position: relative;
   }
 
   .board-wrap {
-    order: -1;
     border-radius: 28px;
-    min-height: min(58svh, 620px);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    order: -1;
+    overflow: visible;
     position: relative;
   }
 
   .canvas-viewport {
     background: #fff;
-    min-height: min(52svh, 560px);
+    flex: 0 0 auto;
+    min-height: clamp(340px, 56svh, 680px);
+    order: 1;
     padding: 0;
+  }
+
+  .toolbar {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr;
+    max-height: 34svh;
+    order: 2;
+    overflow: auto;
+    padding: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tool-group,
+  .swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
+  }
+
+  .toolbar input[type="range"] {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .opacity-control,
+  .eraser-control,
+  .zoom-status {
+    min-width: 0;
+    width: 100%;
   }
 
   .side-panel,
   .chat-panel {
-    max-height: min(18svh, 180px);
+    max-height: 28svh;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .game[data-role="drawer"] .side-panel,
+  .game[data-role="guesser"] .side-panel,
+  .game[data-role="guesser"] .toolbar {
+    display: none;
+  }
+
+  .game[data-role="guesser"] .board-wrap {
+    display: grid;
+    grid-template-rows: 1fr;
   }
 
   .game[data-role="drawer"] .chat-panel {
@@ -1013,7 +1019,7 @@ canvas {
     pointer-events: none;
     position: absolute;
     right: 28px;
-    top: 112px;
+    top: 104px;
     z-index: 4;
   }
 
@@ -1040,15 +1046,6 @@ canvas {
   .game[data-role="drawer"] .message.system,
   .game[data-role="drawer"] .message.hint {
     display: none;
-  }
-
-  .game[data-role="guesser"] .side-panel,
-  .game[data-role="guesser"] .toolbar {
-    display: none;
-  }
-
-  .game[data-role="guesser"] .board-wrap {
-    grid-template-rows: 1fr;
   }
 
   .game[data-role="guesser"] .chat-panel {
@@ -1084,6 +1081,32 @@ canvas {
   }
 }
 
+@media (pointer: coarse) {
+  .toolbar {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .toolbar input[type="color"] {
+    height: 48px;
+    width: 60px;
+  }
+
+  .toolbar input[type="range"] {
+    min-height: 48px;
+  }
+
+  .tool-button {
+    min-height: 44px;
+  }
+
+  .swatch {
+    height: 38px;
+    min-height: 38px;
+    width: 38px;
+  }
+}
+
 @media (max-width: 640px) {
   .lobby,
   .play-area {
@@ -1091,12 +1114,12 @@ canvas {
   }
 
   .topbar {
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
     padding: 12px;
   }
 
   .scoreboard {
-    flex-direction: column;
+    flex-direction: row;
   }
 }
