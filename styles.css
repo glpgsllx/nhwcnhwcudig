@@ -182,6 +182,82 @@ button:disabled {
   letter-spacing: 0.12em;
 }
 
+.join-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 32px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  display: grid;
+  gap: 18px;
+  margin: auto 0;
+  padding: 30px;
+  text-align: center;
+}
+
+.join-icon,
+.avatar-large {
+  align-items: center;
+  background: #dbeafe;
+  border-radius: 22px;
+  color: #2563eb;
+  display: flex;
+  font-size: 32px;
+  font-weight: 900;
+  height: 76px;
+  justify-content: center;
+  margin: 0 auto;
+  width: 76px;
+}
+
+.room-code-input {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  min-height: 62px;
+  text-align: center;
+}
+
+.modal-layer {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.42);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 24px;
+  position: fixed;
+  z-index: 20;
+}
+
+.nickname-modal {
+  background: #fff;
+  border-radius: 32px;
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.2);
+  display: grid;
+  gap: 18px;
+  max-width: 360px;
+  padding: 30px;
+  position: relative;
+  text-align: center;
+  width: 100%;
+}
+
+.modal-close {
+  align-items: center;
+  background: #f8fafc;
+  color: #64748b;
+  display: flex;
+  font-size: 24px;
+  height: 38px;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0;
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  width: 38px;
+}
+
 .shell-list {
   display: grid;
   gap: 8px;
@@ -786,6 +862,22 @@ canvas {
   font-weight: 800;
 }
 
+.message.hint {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #d97706;
+  font-weight: 800;
+}
+
+.hint-button {
+  align-self: flex-end;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  color: #475569;
+  margin-top: 10px;
+}
+
 .guess-form {
   display: grid;
   gap: 8px;
@@ -847,19 +939,62 @@ canvas {
     grid-template-columns: 1fr;
   }
 
-  .play-area {
-    grid-template-rows: auto auto auto;
-    gap: 12px;
+  .game {
+    background: #f8fafc;
+    grid-template-rows: auto 1fr;
+  }
+
+  .topbar {
+    min-height: 90px;
+    padding: 14px 18px;
+  }
+
+  .topbar .eyebrow,
+  .sync-status {
+    display: none;
+  }
+
+  .topbar h2 {
+    font-size: 24px;
+    left: 50%;
+    max-width: 38vw;
     overflow: hidden;
+    position: absolute;
+    text-align: center;
+    text-overflow: ellipsis;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  .scoreboard {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .scoreboard span {
+    border-radius: 999px;
+    min-width: 86px;
+  }
+
+  .play-area {
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    gap: 12px;
+    min-height: calc(100dvh - 90px);
+    overflow: visible;
+    padding: 12px;
   }
 
   .board-wrap {
     order: -1;
-    min-height: min(44svh, 420px);
+    border-radius: 28px;
+    min-height: min(58svh, 620px);
+    position: relative;
   }
 
   .canvas-viewport {
-    min-height: min(36svh, 360px);
+    background: #fff;
+    min-height: min(52svh, 560px);
+    padding: 0;
   }
 
   .side-panel,
@@ -869,8 +1004,83 @@ canvas {
     -webkit-overflow-scrolling: touch;
   }
 
+  .game[data-role="drawer"] .chat-panel {
+    background: transparent;
+    border: 0;
+    left: 28px;
+    max-height: 150px;
+    padding: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 28px;
+    top: 112px;
+    z-index: 4;
+  }
+
+  .game[data-role="drawer"] .guess-form,
+  .game[data-role="drawer"] .hint-button {
+    display: none;
+  }
+
+  .game[data-role="drawer"] .messages {
+    align-items: flex-start;
+    overflow: hidden;
+  }
+
+  .game[data-role="drawer"] .message {
+    background: rgba(15, 23, 42, 0.62);
+    border-radius: 14px;
+    color: #fff;
+    max-width: 72%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game[data-role="drawer"] .message.system,
+  .game[data-role="drawer"] .message.hint {
+    display: none;
+  }
+
+  .game[data-role="guesser"] .side-panel,
+  .game[data-role="guesser"] .toolbar {
+    display: none;
+  }
+
+  .game[data-role="guesser"] .board-wrap {
+    grid-template-rows: 1fr;
+  }
+
+  .game[data-role="guesser"] .chat-panel {
+    border: 0;
+    box-shadow: none;
+    max-height: none;
+    padding: 12px 0 0;
+  }
+
+  .game[data-role="guesser"] .messages {
+    flex: none;
+    max-height: 72px;
+  }
+
+  .game[data-role="guesser"] .hint-button {
+    margin: -54px 0 12px auto;
+    position: relative;
+    z-index: 5;
+  }
+
   .guess-form {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 64px;
+  }
+
+  .guess-form input {
+    border-radius: 18px;
+    min-height: 58px;
+  }
+
+  .guess-form button {
+    border-radius: 18px;
+    min-height: 58px;
   }
 }
 

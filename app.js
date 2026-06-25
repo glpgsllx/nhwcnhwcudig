@@ -58,6 +58,7 @@ const zoomLabel = document.querySelector("#zoomLabel");
 const canvasViewport = document.querySelector("#canvasViewport");
 const eraserPreview = document.querySelector("#eraserPreview");
 const messages = document.querySelector("#messages");
+const hintButton = document.querySelector("#hintButton");
 const guessForm = document.querySelector("#guessForm");
 const guessInput = document.querySelector("#guessInput");
 const canvas = document.querySelector("#board");
@@ -79,7 +80,7 @@ window.addEventListener("hashchange", () => showRoute(currentRoute()));
 joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
   enterRoom(nameInput.value, roomInput.value);
-  navigate("game");
+  navigate("room");
 });
 
 window.addEventListener("resize", () => {
@@ -93,7 +94,8 @@ window.addEventListener("storage", (event) => {
   ensureCurrentPlayer();
   render();
   replayCanvas();
-  if (currentRoute() === "room") showRoute("room");
+  syncRouteFromPhase();
+  if (["room", "select-word", "result", "final-result"].includes(currentRoute())) showRoute(currentRoute());
 });
 
 window.addEventListener("beforeunload", () => {
@@ -190,14 +192,34 @@ function renderCreateRoomPage() {
 
 function renderJoinRoomPage() {
   const defaultRoom = presetRoom || roomInput.value || "";
+  const isNicknameStep = sessionStorage.getItem("joinRoomCode") || presetRoom;
+  const roomCode = isNicknameStep || defaultRoom;
   return `
     <section class="mobile-shell">
       ${shellHeader("加入房间")}
-      <form id="joinRoomForm" class="shell-form">
-        <label>房间码<input id="joinRoomCode" maxlength="16" value="${sanitizeHtml(defaultRoom)}" placeholder="输入房间码" required /></label>
-        <label>昵称<input id="joinName" maxlength="12" placeholder="比如 小陈" required /></label>
-        <button type="submit">进入房间</button>
-      </form>
+      <div class="join-card">
+        <div class="join-icon">↪</div>
+        <h1>输入邀请码</h1>
+        <p>向房主获取房间号并在此输入</p>
+        <form id="joinCodeForm" class="shell-form ${isNicknameStep ? "hidden" : ""}">
+          <input id="joinRoomCode" class="room-code-input" maxlength="16" value="${sanitizeHtml(defaultRoom)}" placeholder="例如：8273" required />
+          <button type="submit">下一步</button>
+        </form>
+      </div>
+      ${
+        isNicknameStep
+          ? `<div class="modal-layer">
+              <form id="joinRoomForm" class="nickname-modal">
+                <button class="modal-close" type="button" id="joinBackToCode">×</button>
+                <div class="avatar-large">人</div>
+                <h1>设置您的昵称</h1>
+                <p>即将加入房间：<strong>${sanitizeHtml(roomCode)}</strong></p>
+                <input id="joinName" maxlength="12" placeholder="请输入响亮的昵称..." required />
+                <button type="submit">确认进入</button>
+              </form>
+            </div>`
+          : ""
+      }
     </section>
   `;
 }
@@ -331,8 +353,20 @@ function attachShellHandlers(page) {
   });
   shell.querySelector("#joinRoomForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
-    enterRoom(shell.querySelector("#joinName").value, shell.querySelector("#joinRoomCode").value);
+    enterRoom(shell.querySelector("#joinName").value, sessionStorage.getItem("joinRoomCode") || presetRoom || "");
+    sessionStorage.removeItem("joinRoomCode");
     navigate("room");
+  });
+  shell.querySelector("#joinCodeForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = sanitizeRoom(shell.querySelector("#joinRoomCode").value);
+    if (!code) return;
+    sessionStorage.setItem("joinRoomCode", code);
+    showRoute("join-room");
+  });
+  shell.querySelector("#joinBackToCode")?.addEventListener("click", () => {
+    sessionStorage.removeItem("joinRoomCode");
+    showRoute("join-room");
   });
   shell.querySelector("#shellCopyRoom")?.addEventListener("click", async () => {
     await navigator.clipboard?.writeText(inviteUrl());
@@ -348,6 +382,7 @@ function attachShellHandlers(page) {
     });
   });
   shell.querySelector("#resultPrimary")?.addEventListener("click", () => {
+    if (!isHost) return;
     if ((state?.roundNumber || 1) >= (state?.totalRounds || 3)) {
       finishGame();
     } else {
@@ -391,6 +426,7 @@ function enterRoom(name, requestedRoom = "", options = {}) {
 
 function beginWordSelection() {
   requirePlayer();
+  if (!isHost) return;
   state.phase = "select-word";
   state.wordOptions = pickWords(4);
   state.roundNumber = (state.roundNumber || 0) + 1;
@@ -402,16 +438,19 @@ function beginWordSelection() {
   state.redoStrokes = [];
   clearRelayLineQueue();
   replayCanvas();
-  saveState();
+  saveState({ broadcast: false });
+  sendSync({ type: "select", state });
   navigate("select-word");
 }
 
 function startNewRound(word) {
   requirePlayer();
+  if (isDrawer()) return;
   state.phase = "game";
   state.roundId = randomId();
   state.word = word;
   state.lastWord = word;
+  state.hintVisible = false;
   state.roundEndsAt = Date.now() + 60_000;
   state.lines = [];
   state.strokes = [];
@@ -430,17 +469,21 @@ function startNewRound(word) {
 function finishRound(success) {
   if (!state || state.phase === "result" || state.phase === "final-result") return;
   const word = state.word || state.lastWord || "";
+  const resultId = `${state.roundId}:${success ? "success" : "failed"}`;
+  if (state.result?.id === resultId) return;
   const timeUsed = state.roundEndsAt ? Math.min(60, Math.max(0, Math.round((60_000 - (state.roundEndsAt - Date.now())) / 1000))) : 60;
   state.phase = "result";
   state.result = {
+    id: resultId,
     success,
     word,
     timeUsed: success ? timeUsed : 60,
     round: state.roundNumber || 1,
   };
   state.history = [
-    ...(state.history || []),
+    ...(state.history || []).filter((item) => item.roundId !== state.roundId),
     {
+      roundId: state.roundId,
       round: state.roundNumber || 1,
       word,
       success,
@@ -457,7 +500,8 @@ function finishRound(success) {
 function finishGame() {
   if (!state) return;
   state.phase = "final-result";
-  saveState();
+  saveState({ broadcast: false });
+  sendSync({ type: "final", state });
   navigate("final-result");
 }
 
@@ -568,6 +612,16 @@ undoStroke.addEventListener("click", () => {
 redoStroke.addEventListener("click", () => {
   if (!requireDrawer()) return;
   redoLastStroke();
+});
+
+hintButton.addEventListener("click", () => {
+  if (!state || isDrawer()) return;
+  state.hintVisible = true;
+  state.messages = [
+    ...state.messages.slice(-30),
+    makeMessage("系统", `提示：${hintForCategory(state.category)}`, "hint"),
+  ];
+  saveState();
 });
 
 canvasViewport.addEventListener(
@@ -722,12 +776,25 @@ function render() {
   const players = Object.values(state.players);
   const drawer = state.players[state.drawerId];
   const secondsLeft = Math.max(0, Math.ceil((state.roundEndsAt - Date.now()) / 1000));
+  const drawerMode = isDrawer();
 
-  roundTitle.textContent = drawer ? `${drawer.name} 正在画` : "等待玩家";
+  game.dataset.role = drawerMode ? "drawer" : "guesser";
+  game.dataset.phase = state.phase || "";
+  const compactGame = window.matchMedia("(max-width: 760px)").matches;
+  roundTitle.textContent =
+    state.phase === "game" && state.word
+      ? drawerMode
+        ? state.word
+        : "？".repeat(Math.max(1, state.word.length))
+      : drawer
+        ? `${drawer.name} 正在画`
+        : "等待玩家";
   timer.textContent = `${secondsLeft}s`;
-  score.textContent = players.map((player) => player.score).join(" : ") || "0 : 0";
-  roleLabel.textContent = isDrawer() ? "画手" : "猜词";
-  wordLabel.textContent = isDrawer()
+  score.textContent = compactGame
+    ? `第 ${state.roundNumber || 1} 轮`
+    : players.map((player) => player.score).join(" : ") || "0 : 0";
+  roleLabel.textContent = drawerMode ? "画手" : "猜词";
+  wordLabel.textContent = drawerMode
     ? state.word || "点开始/换题"
     : state.word
       ? "猜猜画的是什么"
@@ -748,6 +815,10 @@ function render() {
     messages.append(item);
   });
   messages.scrollTop = messages.scrollHeight;
+  hintButton.classList.toggle("hidden", drawerMode || state.phase !== "game" || state.hintVisible);
+  guessInput.placeholder = state.hintVisible
+    ? `提示：${hintForCategory(state.category)}，输入答案...`
+    : "输入答案或聊天";
 }
 
 function replayCanvas() {
@@ -1093,7 +1164,7 @@ function getCanvasPoint(event) {
 }
 
 function makeRoomCode() {
-  return Math.random().toString(36).slice(2, 12);
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 function makeMessage(author, text, type) {
@@ -1159,6 +1230,14 @@ function isDrawer() {
 
 function normalize(value) {
   return value.trim().replace(/\s+/g, "").toLowerCase();
+}
+
+function hintForCategory(category) {
+  if (category === "常见水果") return "一种水果";
+  if (category === "动物世界") return "一种动物";
+  if (category === "日常用品") return "日常用品";
+  if (category === "成语大全") return "一个成语";
+  return "看看分类和笔画";
 }
 
 function hexToRgb(hex) {
@@ -1303,8 +1382,16 @@ function handleSyncPayload(data, exceptPeer = "") {
     replayCanvas();
     syncRouteFromPhase();
   }
+  if (data.type === "select") {
+    state = adoptFlowState(data.state);
+    ensureCurrentPlayer();
+    localStorage.setItem(roomKey(), JSON.stringify(state));
+    render();
+    replayCanvas();
+    navigate("select-word");
+  }
   if (data.type === "round") {
-    state = mergeState(data.state, state, { preferRemoteLines: true });
+    state = adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
@@ -1312,12 +1399,24 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("game");
   }
   if (data.type === "result") {
-    state = mergeState(data.state, state, { preferRemoteLines: true });
+    if (state?.roundId && data.state?.roundId && state.roundId !== data.state.roundId && state.phase === "game") {
+      applyingRemoteState = false;
+      return;
+    }
+    state = adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
     replayCanvas();
     navigate("result");
+  }
+  if (data.type === "final") {
+    state = adoptFlowState(data.state, { preferRemoteLines: true });
+    ensureCurrentPlayer();
+    localStorage.setItem(roomKey(), JSON.stringify(state));
+    render();
+    replayCanvas();
+    navigate("final-result");
   }
   if (data.type === "clear") {
     if (!data.roundId || data.roundId === state.roundId) {
@@ -1345,7 +1444,7 @@ function handleSyncPayload(data, exceptPeer = "") {
   }
   applyingRemoteState = false;
 
-  if (["state", "round", "result", "clear", "undo", "redo", "fill"].includes(data.type)) {
+  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "fill"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
 }
@@ -1440,7 +1539,7 @@ function mergeState(remoteState, localState, options = {}) {
   if (!remoteState) return localState;
   normalizeState(remoteState);
   normalizeState(localState);
-  const mergedPlayers = { ...remoteState.players, ...localState.players };
+  const mergedPlayers = mergePlayers(remoteState.players, localState.players);
   const mergedMessages = [...remoteState.messages, ...localState.messages]
     .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
     .sort((a, b) => a.createdAt - b.createdAt)
@@ -1457,6 +1556,37 @@ function mergeState(remoteState, localState, options = {}) {
     strokes: chooseStrokes(remoteState, localState, options),
     redoStrokes: baseState.redoStrokes || [],
   };
+}
+
+function adoptFlowState(remoteState, options = {}) {
+  if (!remoteState) return state;
+  normalizeState(remoteState);
+  normalizeState(state);
+  return {
+    ...remoteState,
+    players: mergePlayers(remoteState.players, state.players),
+    messages: [...(remoteState.messages || []), ...(state.messages || [])]
+      .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-40),
+    lines: chooseLines(remoteState, state, options),
+    strokes: chooseStrokes(remoteState, state, options),
+    redoStrokes: remoteState.redoStrokes || [],
+  };
+}
+
+function mergePlayers(remotePlayers = {}, localPlayers = {}) {
+  const merged = { ...localPlayers };
+  Object.entries(remotePlayers).forEach(([id, remotePlayer]) => {
+    const localPlayer = merged[id];
+    merged[id] = {
+      ...localPlayer,
+      ...remotePlayer,
+      score: Math.max(remotePlayer?.score || 0, localPlayer?.score || 0),
+      joinedAt: Math.min(remotePlayer?.joinedAt || Date.now(), localPlayer?.joinedAt || Date.now()),
+    };
+  });
+  return merged;
 }
 
 function chooseLines(remoteState, localState, options = {}) {
@@ -1519,6 +1649,7 @@ function normalizeState(targetState) {
   targetState.roundNumber ||= 0;
   targetState.lastWord ||= targetState.word || "";
   targetState.wordOptions ||= [];
+  targetState.hintVisible ||= false;
   targetState.result ||= null;
   targetState.history ||= [];
   targetState.roundId ||= randomId();
