@@ -80,6 +80,13 @@ button:disabled {
   text-align: center;
 }
 
+.version-label {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
 .home-logo {
   align-items: center;
   background: #dbeafe;

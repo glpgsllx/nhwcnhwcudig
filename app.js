@@ -1,4 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
+const APP_VERSION = "2026.06.27.5";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -243,6 +244,7 @@ function renderHomePage() {
       <div class="home-logo">画</div>
       <h1>你画我猜</h1>
       <p>双人互动 · 浏览器联机 · 画板工具箱</p>
+      <small class="version-label">v${APP_VERSION}</small>
       <div class="shell-actions">
         <button type="button" data-nav="create-room">创建房间</button>
         <button class="secondary" type="button" data-nav="join-room">加入房间</button>
@@ -256,6 +258,7 @@ function renderCreateRoomPage() {
   return `
     <section class="mobile-shell">
       ${shellHeader("创建房间")}
+      <small class="version-label">v${APP_VERSION}</small>
       <form id="createRoomForm" class="shell-form">
         <label>昵称<input id="createName" maxlength="12" placeholder="比如 小陈" required /></label>
         <label>词库分类
@@ -279,6 +282,7 @@ function renderJoinRoomPage() {
   return `
     <section class="mobile-shell">
       ${shellHeader("加入房间")}
+      <small class="version-label">v${APP_VERSION}</small>
       <div class="join-card">
         <div class="join-icon">↪</div>
         <h1>输入邀请码</h1>
