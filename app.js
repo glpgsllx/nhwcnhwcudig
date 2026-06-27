@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.11";
+const APP_VERSION = "2026.06.27.12";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -317,7 +317,7 @@ function renderJoinRoomPage() {
 }
 
 function renderRoomPage() {
-  const players = state ? Object.values(state.players) : [];
+  const players = roomDisplayPlayers();
   const totalRounds = state?.totalRounds || 3;
   const category = state?.category || "默认词库";
   return `
@@ -344,6 +344,18 @@ function renderRoomPage() {
       </div>
     </section>
   `;
+}
+
+function roomDisplayPlayers() {
+  const players = state ? Object.values(state.players) : [];
+  const hasOtherPlayer = players.some((player) => player.id !== clientId);
+  if (!isHost && !hasOtherPlayer) {
+    return [
+      { id: "__host_pending__", name: "房主连接中", score: 0, pending: true },
+      ...players,
+    ];
+  }
+  return players;
 }
 
 function renderSelectWordPage() {
@@ -998,9 +1010,11 @@ function render() {
       : "等待新题目";
 
   playerList.innerHTML = "";
-  players.forEach((player) => {
+  roomDisplayPlayers().forEach((player) => {
     const item = document.createElement("li");
-    item.textContent = `${player.name}${player.id === state.drawerId ? " · 画手" : ""} · ${player.score}分`;
+    item.textContent = player.pending
+      ? player.name
+      : `${player.name}${player.id === state.drawerId ? " · 画手" : ""} · ${player.score}分`;
     playerList.append(item);
   });
 
@@ -1668,9 +1682,13 @@ function attachConnection(connection) {
   connection.on("open", () => {
     peerReady = true;
     if (isHost) {
-      sendToPeer(connection, { type: "state", state });
+      sendPeerSnapshot(connection);
+      setTimeout(() => sendPeerSnapshot(connection), 700);
+      setTimeout(() => sendPeerSnapshot(connection), 1800);
     } else {
-      sendToPeer(connection, { type: "join", player: state.players[clientId] });
+      sendPeerJoinRequest(connection);
+      setTimeout(() => sendPeerJoinRequest(connection), 700);
+      setTimeout(() => sendPeerJoinRequest(connection), 1800);
     }
     addMessage("系统", isHost ? "对方已连接" : "已连接到房间", "system");
     updateSyncStatus();
@@ -1685,6 +1703,36 @@ function attachConnection(connection) {
     peerReady = connections.some((item) => item.open);
     addMessage("系统", "对方已断开", "system");
     updateSyncStatus();
+  });
+}
+
+function sendPeerSnapshot(connection) {
+  if (!state?.players?.[clientId]) return;
+  sendToPeer(connection, {
+    type: "presence",
+    player: state.players[clientId],
+    isHost: true,
+    drawerId: state.drawerId || clientId,
+    senderId: clientId,
+  });
+  sendToPeer(connection, {
+    type: "state",
+    state,
+    senderId: clientId,
+  });
+}
+
+function sendPeerJoinRequest(connection) {
+  if (!state?.players?.[clientId]) return;
+  sendToPeer(connection, {
+    type: "join",
+    player: state.players[clientId],
+    senderId: clientId,
+  });
+  sendToPeer(connection, {
+    type: "state-request",
+    player: state.players[clientId],
+    senderId: clientId,
   });
 }
 

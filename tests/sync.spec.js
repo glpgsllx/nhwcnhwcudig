@@ -416,6 +416,9 @@ test("separate devices join the same room and receive host start", async ({ brow
   await guest.locator("#joinName").fill("访客");
   await guest.getByRole("button", { name: "确认进入" }).click();
   await expect(guest.getByText("房间等待")).toBeVisible();
+  await expect(guest.locator(".shell-list li", { hasText: "房主" }).first()).toBeVisible({
+    timeout: 7000,
+  });
   await expect(host.locator(".shell-list li", { hasText: "访客" }).first()).toBeVisible({
     timeout: 7000,
   });
