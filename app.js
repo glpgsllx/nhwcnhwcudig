@@ -1,7 +1,9 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
 
 const storagePrefix = "draw-and-guess-demo:";
-const clientId = randomId();
+const clientIdKey = `${storagePrefix}client-id`;
+const lastSessionKey = `${storagePrefix}last-session`;
+const clientId = loadClientId();
 let roomId = "";
 let playerName = "";
 let state = null;
@@ -73,9 +75,22 @@ ctx.lineCap = "round";
 ctx.lineJoin = "round";
 if (presetRoom) roomInput.value = sanitizeRoom(presetRoom);
 setZoom(1);
-showRoute(presetRoom ? "join-room" : currentRoute());
+const restoredSession = restoreLastSession();
+if (restoredSession) {
+  const restoredRoute = routeForPhase() || currentRoute();
+  if (currentRoute() === restoredRoute) {
+    showRoute(restoredRoute);
+  } else {
+    navigate(restoredRoute);
+  }
+} else {
+  showRoute(presetRoom ? "join-room" : currentRoute());
+}
 
-window.addEventListener("hashchange", () => showRoute(currentRoute()));
+window.addEventListener("hashchange", () => {
+  if (keepRouteInCurrentFlow()) return;
+  showRoute(currentRoute());
+});
 
 joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -104,10 +119,73 @@ window.addEventListener("storage", (event) => {
 
 window.addEventListener("beforeunload", () => {
   if (!state) return;
-  delete state.players[clientId];
-  if (state.drawerId === clientId) state.drawerId = Object.keys(state.players)[0] || "";
-  saveState();
+  rememberSession();
+  state.updatedAt = Date.now();
+  localStorage.setItem(roomKey(), JSON.stringify(state));
 });
+
+function loadClientId() {
+  const existing = sessionStorage.getItem(clientIdKey);
+  if (existing) return existing;
+  const nextId = randomId();
+  sessionStorage.setItem(clientIdKey, nextId);
+  return nextId;
+}
+
+function rememberSession() {
+  if (!roomId || !playerName) return;
+  sessionStorage.setItem(
+    lastSessionKey,
+    JSON.stringify({
+      roomId,
+      playerName,
+      isHost,
+      updatedAt: Date.now(),
+    }),
+  );
+}
+
+function readLastSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem(lastSessionKey) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function restoreLastSession() {
+  const session = readLastSession();
+  if (!session?.roomId || !session?.playerName) return false;
+  const savedRoom = sanitizeRoom(session.roomId);
+  if (presetRoom && sanitizeRoom(presetRoom) !== savedRoom) return false;
+  roomId = savedRoom;
+  playerName = session.playerName;
+  isHost = Boolean(session.isHost);
+  state = loadState();
+  if (!state) {
+    roomId = "";
+    playerName = "";
+    isHost = false;
+    return false;
+  }
+  ensureCurrentPlayer();
+  copyRoom.textContent = roomId;
+  render();
+  replayCanvas();
+  fitCanvas();
+  startLocalTimer();
+  startPeerMode();
+  return true;
+}
+
+function keepRouteInCurrentFlow() {
+  const expectedRoute = routeForPhase();
+  if (!state || !expectedRoute) return false;
+  const route = currentRoute();
+  if (route === expectedRoute) return false;
+  navigate(expectedRoute);
+  return true;
+}
 
 function currentRoute() {
   return window.location.hash.replace(/^#\/?/, "") || "home";
@@ -417,9 +495,10 @@ function enterRoom(name, requestedRoom = "", options = {}) {
     id: clientId,
     name: playerName,
     score: state.players[clientId]?.score || 0,
-    joinedAt: Date.now(),
+    joinedAt: state.players[clientId]?.joinedAt || Date.now(),
   };
   if (!state.drawerId) state.drawerId = clientId;
+  rememberSession();
   saveState();
   copyRoom.textContent = roomId;
   render();
@@ -899,7 +978,7 @@ function replayCanvas() {
   const drawnLineIds = new Set();
   state?.strokes?.forEach((stroke) => {
     if (stroke.type === "fill") {
-      applyFillOperation(stroke);
+      if (!applyImagePatch(stroke.patch)) applyFillOperation(stroke);
       return;
     }
     stroke.lines?.forEach((line) => {
@@ -963,6 +1042,7 @@ function seededRandom(seed) {
 }
 
 function fillAtPoint(point) {
+  const beforeFill = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const fill = {
     id: randomId(),
     type: "fill",
@@ -975,6 +1055,7 @@ function fillAtPoint(point) {
   };
   const changed = applyFillOperation(fill);
   if (!changed) return;
+  fill.patch = makeImagePatch(beforeFill, ctx.getImageData(0, 0, canvas.width, canvas.height));
   state.strokes = [...(state.strokes || []), fill];
   state.redoStrokes = [];
   state.boardVersion = (state.boardVersion || 0) + 1;
@@ -1031,6 +1112,104 @@ function applyFillOperation(fill) {
   if (!changed) return false;
   ctx.putImageData(image, 0, 0);
   return true;
+}
+
+function makeImagePatch(beforeImage, afterImage) {
+  if (
+    !beforeImage ||
+    !afterImage ||
+    beforeImage.width !== afterImage.width ||
+    beforeImage.height !== afterImage.height
+  ) {
+    return null;
+  }
+
+  const before = beforeImage.data;
+  const after = afterImage.data;
+  const width = afterImage.width;
+  const height = afterImage.height;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let index = 0; index < after.length; index += 4) {
+    if (
+      before[index] === after[index] &&
+      before[index + 1] === after[index + 1] &&
+      before[index + 2] === after[index + 2] &&
+      before[index + 3] === after[index + 3]
+    ) {
+      continue;
+    }
+    const pixel = index / 4;
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+
+  if (maxX < minX || maxY < minY) return null;
+
+  const padding = 80;
+  minX = Math.max(0, minX - padding);
+  minY = Math.max(0, minY - padding);
+  maxX = Math.min(width - 1, maxX + padding);
+  maxY = Math.min(height - 1, maxY + padding);
+
+  const patchWidth = maxX - minX + 1;
+  const patchHeight = maxY - minY + 1;
+  const patchData = new Uint8ClampedArray(patchWidth * patchHeight * 4);
+  for (let row = 0; row < patchHeight; row += 1) {
+    const sourceStart = ((minY + row) * width + minX) * 4;
+    const sourceEnd = sourceStart + patchWidth * 4;
+    patchData.set(after.slice(sourceStart, sourceEnd), row * patchWidth * 4);
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: patchWidth,
+    height: patchHeight,
+    data: encodeBytes(patchData),
+  };
+}
+
+function applyImagePatch(patch) {
+  if (!patch?.data || !patch.width || !patch.height) return false;
+  const x = Math.max(0, Math.round(patch.x || 0));
+  const y = Math.max(0, Math.round(patch.y || 0));
+  const width = Math.round(patch.width);
+  const height = Math.round(patch.height);
+  if (width <= 0 || height <= 0 || x >= canvas.width || y >= canvas.height) return false;
+  try {
+    const bytes = decodeBytes(patch.data);
+    if (bytes.length !== width * height * 4) return false;
+    ctx.putImageData(new ImageData(bytes, width, height), x, y);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function encodeBytes(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function decodeBytes(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8ClampedArray(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function pickCanvasColor(point) {
@@ -1641,7 +1820,7 @@ function applyRemoteFill(fill) {
   state.strokes = [...(state.strokes || []), fill];
   state.redoStrokes = [];
   localStorage.setItem(roomKey(), JSON.stringify(state));
-  replayCanvas();
+  if (!applyImagePatch(fill.patch)) replayCanvas();
 }
 
 function startRelayMode() {
@@ -1836,6 +2015,13 @@ function ensureCurrentPlayer() {
   normalizeState(state);
   if (!state.players[clientId]) {
     state.players[clientId] = { id: clientId, name: playerName, score: 0, joinedAt: Date.now() };
+  } else {
+    state.players[clientId] = {
+      ...state.players[clientId],
+      id: clientId,
+      name: playerName,
+      joinedAt: state.players[clientId].joinedAt || Date.now(),
+    };
   }
 }
 
