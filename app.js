@@ -605,7 +605,35 @@ function finishGame() {
 }
 
 function pickWords(count) {
-  return [...WORDS].sort(() => Math.random() - 0.5).slice(0, count);
+  const selected = [];
+  [2, 3, 4].forEach((length) => {
+    const word = pickRandomWord(WORDS.filter((item) => wordLength(item) === length), selected);
+    if (word) selected.push(word);
+  });
+
+  while (selected.length < count) {
+    const word = pickRandomWord(WORDS, selected);
+    if (!word) break;
+    selected.push(word);
+  }
+
+  return shuffle(selected).slice(0, count);
+}
+
+function pickRandomWord(words, excluded = []) {
+  const excludedSet = new Set(excluded);
+  const candidates = words.filter((word) => !excludedSet.has(word));
+  if (!candidates.length) return "";
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function shuffle(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
 }
 
 function formatScore() {
