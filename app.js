@@ -468,7 +468,7 @@ function startNewRound(word) {
   state.word = word;
   state.lastWord = word;
   state.hintVisible = false;
-  state.roundEndsAt = Date.now() + 60_000;
+  state.roundEndsAt = Date.now() + roundDurationMs();
   state.lines = [];
   state.strokes = [];
   state.redoStrokes = [];
@@ -1041,6 +1041,7 @@ function finishCurrentStroke() {
   if (currentStroke.lines.length) {
     state.strokes = [...(state.strokes || []), currentStroke];
     state.redoStrokes = [];
+    sendSync({ type: "stroke", stroke: currentStroke });
   }
   currentStroke = null;
 }
@@ -1240,6 +1241,15 @@ function getCanvasPoint(event) {
 
 function makeRoomCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function roundDurationMs() {
+  const testSeconds = Number(new URLSearchParams(window.location.search).get("roundSeconds"));
+  const testHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  if (testHost && Number.isFinite(testSeconds) && testSeconds > 0) {
+    return Math.max(1, Math.min(60, testSeconds)) * 1000;
+  }
+  return 60_000;
 }
 
 function makeMessage(author, text, type) {
@@ -1559,6 +1569,13 @@ function handleSyncPayload(data, exceptPeer = "") {
     }
     data.lines?.forEach(applyRemoteLine);
   }
+  if (data.type === "stroke") {
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
+    applyRemoteStroke(data.stroke);
+  }
   if (data.type === "fill") {
     if (!isAuthorizedDrawerEvent(data)) {
       applyingRemoteState = false;
@@ -1570,7 +1587,7 @@ function handleSyncPayload(data, exceptPeer = "") {
   }
   applyingRemoteState = false;
 
-  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "line", "lines", "fill"].includes(data.type)) {
+  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "line", "lines", "stroke", "fill"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
 }
@@ -1582,6 +1599,19 @@ function applyRemoteLine(line) {
   ensureStrokeForLine(line);
   localStorage.setItem(roomKey(), JSON.stringify(state));
   drawLine(line);
+}
+
+function applyRemoteStroke(stroke) {
+  if (!stroke || (stroke.roundId && stroke.roundId !== state.roundId)) return;
+  const existingLineIds = new Set(state.lines.map((line) => line.id));
+  const missingLines = (stroke.lines || []).filter((line) => !existingLineIds.has(line.id));
+  if (!missingLines.length && (state.strokes || []).some((item) => item.id === stroke.id)) return;
+  state.lines = [...state.lines, ...missingLines];
+  if (!(state.strokes || []).some((item) => item.id === stroke.id)) {
+    state.strokes = [...(state.strokes || []), stroke];
+  }
+  localStorage.setItem(roomKey(), JSON.stringify(state));
+  missingLines.forEach(drawLine);
 }
 
 function applyRemoteFill(fill) {

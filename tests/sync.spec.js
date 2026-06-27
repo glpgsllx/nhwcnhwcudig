@@ -39,6 +39,66 @@ async function nonWhitePixels(page) {
   });
 }
 
+async function canvasData(page) {
+  return page.locator("#board").evaluate((canvas) => {
+    const ctx = canvas.getContext("2d");
+    return Array.from(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+  });
+}
+
+async function canvasDiff(firstPage, secondPage) {
+  const [first, second] = await Promise.all([canvasData(firstPage), canvasData(secondPage)]);
+  let changedPixels = 0;
+  let totalDelta = 0;
+  for (let index = 0; index < first.length; index += 4) {
+    const delta =
+      Math.abs(first[index] - second[index]) +
+      Math.abs(first[index + 1] - second[index + 1]) +
+      Math.abs(first[index + 2] - second[index + 2]) +
+      Math.abs(first[index + 3] - second[index + 3]);
+    if (delta > 20) changedPixels += 1;
+    totalDelta += delta;
+  }
+  return { changedPixels, totalDelta };
+}
+
+async function canvasMetrics(page) {
+  return page.locator("#board").evaluate((canvas) => {
+    const ctx = canvas.getContext("2d");
+    const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let count = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = 0;
+    let maxY = 0;
+    let sumX = 0;
+    let sumY = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index] < 250 || data[index + 1] < 250 || data[index + 2] < 250) {
+        const pixel = index / 4;
+        const x = pixel % width;
+        const y = Math.floor(pixel / width);
+        count += 1;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+        sumX += x;
+        sumY += y;
+      }
+    }
+    return {
+      count,
+      minX: count ? minX : 0,
+      minY: count ? minY : 0,
+      maxX: count ? maxX : 0,
+      maxY: count ? maxY : 0,
+      centerX: count ? sumX / count : 0,
+      centerY: count ? sumY / count : 0,
+    };
+  });
+}
+
 async function drawLine(page) {
   const before = await nonWhitePixels(page);
   const box = await page.locator("#board").boundingBox();
@@ -70,6 +130,26 @@ async function completeRound({ host, guest, drawer, guesser, selector, wrongGues
 
   await drawLine(drawerPage);
   await expect.poll(() => nonWhitePixels(guesserPage), { timeout: 5000 }).toBeGreaterThan(20);
+  await expect
+    .poll(async () => {
+      const [drawerMetrics, guesserMetrics] = await Promise.all([
+        canvasMetrics(drawerPage),
+        canvasMetrics(guesserPage),
+      ]);
+      const countRatio =
+        Math.abs(drawerMetrics.count - guesserMetrics.count) / Math.max(1, drawerMetrics.count);
+      const centerDistance = Math.hypot(
+        drawerMetrics.centerX - guesserMetrics.centerX,
+        drawerMetrics.centerY - guesserMetrics.centerY,
+      );
+      const boxDistance =
+        Math.abs(drawerMetrics.minX - guesserMetrics.minX) +
+        Math.abs(drawerMetrics.minY - guesserMetrics.minY) +
+        Math.abs(drawerMetrics.maxX - guesserMetrics.maxX) +
+        Math.abs(drawerMetrics.maxY - guesserMetrics.maxY);
+      return countRatio < 0.35 && centerDistance < 30 && boxDistance < 120;
+    }, { timeout: 5000 })
+    .toBe(true);
 
   await guesserPage.locator("#guessInput").fill(wrongGuess);
   await guesserPage.getByRole("button", { name: "发送" }).click();
@@ -187,4 +267,45 @@ test("host and guest can complete three back-and-forth rounds", async ({ browser
   await expect(guest.getByText("游戏结束")).toBeVisible({ timeout: 5000 });
   await expect(host.locator(".final-records li")).toHaveCount(6);
   await expect(guest.locator(".final-records li")).toHaveCount(6);
+});
+
+test("unanswered round times out for both players", async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const host = await context.newPage();
+  const guest = await context.newPage();
+
+  await host.goto(`${BASE_URL}/?roundSeconds=2`);
+  await host.getByRole("button", { name: "创建房间" }).click();
+  await host.locator("#createName").click();
+  await host.locator("#createName").fill("房主");
+  await expect(host.locator("#createName")).toHaveValue("房主");
+  await host.locator("#createRounds").fill("1");
+  await host.locator("#createRoomForm button[type='submit']").click();
+  await expect(host.getByText("房间等待")).toBeVisible();
+  const room = (await host.locator(".room-code-card strong").textContent()).trim();
+
+  await guest.goto(`${BASE_URL}/?roundSeconds=2#/join-room`);
+  await guest.locator("#joinRoomCode").fill(room);
+  await guest.getByRole("button", { name: "下一步" }).click();
+  await guest.locator("#joinName").fill("访客");
+  await guest.getByRole("button", { name: "确认进入" }).click();
+  await expect(guest.getByText("房间等待")).toBeVisible();
+
+  await host.getByRole("button", { name: "开始游戏" }).click();
+  await expect(host.getByText("等待选词...")).toBeVisible();
+  await guest.locator("[data-word]").first().click();
+
+  await expect(host.locator("#game")).toBeVisible({ timeout: 5000 });
+  await expect(guest.locator("#game")).toBeVisible({ timeout: 5000 });
+  await drawLine(host);
+  await expect.poll(() => nonWhitePixels(guest), { timeout: 5000 }).toBeGreaterThan(20);
+
+  await expect(host.getByText("回合失败")).toBeVisible({ timeout: 6000 });
+  await expect(guest.getByText("回合失败")).toBeVisible({ timeout: 6000 });
+  await expect(host.getByText("猜测耗时：60 秒")).toBeVisible();
+  await expect(guest.getByText("猜测耗时：60 秒")).toBeVisible();
 });
