@@ -799,7 +799,7 @@ input:focus {
 }
 
 .canvas-viewport {
-  background: #e5e7eb;
+  background: #eef2f7;
   box-sizing: border-box;
   max-width: 100%;
   min-height: 0;
@@ -823,6 +823,8 @@ input:focus {
 
 canvas {
   background: #fff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   display: block;
   height: auto;
   margin: 0 auto;
@@ -948,11 +950,11 @@ canvas {
   }
 
   .canvas-viewport {
-    background: #fff;
+    background: #eef2f7;
     flex: 0 0 auto;
     min-height: clamp(340px, 56svh, 680px);
     order: 1;
-    padding: 0;
+    padding: 10px;
   }
 
   .toolbar {
