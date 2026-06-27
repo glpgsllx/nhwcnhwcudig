@@ -927,6 +927,7 @@ function render() {
   const drawer = state.players[state.drawerId];
   const secondsLeft = Math.max(0, Math.ceil((state.roundEndsAt - Date.now()) / 1000));
   const drawerMode = isDrawer();
+  const currentWordLength = wordLength(state.word);
 
   game.dataset.role = drawerMode ? "drawer" : "guesser";
   game.dataset.phase = state.phase || "";
@@ -935,7 +936,7 @@ function render() {
     state.phase === "game" && state.word
       ? drawerMode
         ? state.word
-        : "？".repeat(Math.max(1, state.word.length))
+        : "？".repeat(Math.max(1, currentWordLength))
       : drawer
         ? `${drawer.name} 正在画`
         : "等待玩家";
@@ -947,7 +948,7 @@ function render() {
   wordLabel.textContent = drawerMode
     ? state.word || "点开始/换题"
     : state.word
-      ? "猜猜画的是什么"
+      ? `${currentWordLength} 个字`
       : "等待新题目";
 
   playerList.innerHTML = "";
@@ -966,9 +967,16 @@ function render() {
   });
   messages.scrollTop = messages.scrollHeight;
   hintButton.classList.toggle("hidden", drawerMode || state.phase !== "game" || state.hintVisible);
+  const lengthHint = state.word && !drawerMode ? `${currentWordLength}字，` : "";
   guessInput.placeholder = state.hintVisible
-    ? `提示：${hintForCategory(state.category)}，输入答案...`
-    : "输入答案或聊天";
+    ? `提示：${lengthHint}${hintForCategory(state.category)}，输入答案...`
+    : state.word && !drawerMode
+      ? `答案 ${currentWordLength} 字，输入答案或聊天`
+      : "输入答案或聊天";
+}
+
+function wordLength(word) {
+  return [...String(word || "")].length;
 }
 
 function replayCanvas() {
