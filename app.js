@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.9";
+const APP_VERSION = "2026.06.27.10";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -28,6 +28,7 @@ let peerReady = false;
 let lastRelayPublishAt = 0;
 let relayLineQueue = [];
 let relayLineTimer = null;
+let syncHeartbeatTimer = null;
 const seenSyncEvents = new Set();
 
 const presetRoom = new URLSearchParams(window.location.search).get("room");
@@ -101,6 +102,15 @@ joinForm.addEventListener("submit", (event) => {
 
 window.addEventListener("resize", () => {
   if (!game.classList.contains("hidden") && zoom <= 1) fitCanvas();
+});
+
+window.addEventListener("focus", () => {
+  if (!state || !roomId) return;
+  if (isHost) {
+    sendSync({ type: "state", state }, { forceRelay: true });
+  } else {
+    announcePresence();
+  }
 });
 
 window.addEventListener("storage", (event) => {
@@ -1607,6 +1617,7 @@ function startLocalTimer() {
 
 function startPeerMode() {
   startRelayMode();
+  startSyncHeartbeat();
 
   if (!window.Peer) {
     addMessage("系统", "WebRTC 联网库未加载，已启用 HTTP 中继同步", "system");
@@ -1635,6 +1646,18 @@ function startPeerMode() {
     addMessage("系统", `WebRTC 暂不可用，继续使用 HTTP 中继：${error.type || error.message}`, "system");
     updateSyncStatus();
   });
+}
+
+function startSyncHeartbeat() {
+  clearInterval(syncHeartbeatTimer);
+  syncHeartbeatTimer = setInterval(() => {
+    if (!state || !roomId || !playerName) return;
+    if (isHost) {
+      sendSync({ type: "state", state }, { forceRelay: true });
+    } else {
+      announcePresence();
+    }
+  }, 2500);
 }
 
 function connectToHost(hostPeerId) {
