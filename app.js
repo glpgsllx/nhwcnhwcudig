@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.10";
+const APP_VERSION = "2026.06.27.11";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -106,11 +106,7 @@ window.addEventListener("resize", () => {
 
 window.addEventListener("focus", () => {
   if (!state || !roomId) return;
-  if (isHost) {
-    sendSync({ type: "state", state }, { forceRelay: true });
-  } else {
-    announcePresence();
-  }
+  announcePresence();
 });
 
 window.addEventListener("storage", (event) => {
@@ -1653,7 +1649,7 @@ function startSyncHeartbeat() {
   syncHeartbeatTimer = setInterval(() => {
     if (!state || !roomId || !playerName) return;
     if (isHost) {
-      sendSync({ type: "state", state }, { forceRelay: true });
+      announcePresence();
     } else {
       announcePresence();
     }
@@ -1730,6 +1726,12 @@ function handleSyncPayload(data, exceptPeer = "") {
   if (!data || data.senderId === clientId || seenSyncEvents.has(data.eventId)) return;
   if (data.eventId) seenSyncEvents.add(data.eventId);
 
+  if (data.type === "presence") {
+    applyPresence(data.player, data);
+    broadcastPeer(data, exceptPeer);
+    return;
+  }
+
   if (data.type === "join" && isHost) {
     handleJoin(data.player);
     return;
@@ -1737,17 +1739,24 @@ function handleSyncPayload(data, exceptPeer = "") {
 
   if (data.type === "state-request" && isHost) {
     if (data.player) handleJoin(data.player);
-    sendSync({ type: "state", state });
+    sendSync({ type: "state", state }, { forceRelay: true });
     return;
   }
 
   applyingRemoteState = true;
   if (data.type === "state") {
-    state = isHost ? mergePresenceState(data.state, state) : adoptFlowState(data.state, { preferRemoteLines: true });
+    const remoteGameSameRound =
+      state?.phase === "game" &&
+      data.state?.phase === "game" &&
+      (!state.roundId || !data.state.roundId || state.roundId === data.state.roundId);
+    state =
+      isHost || (isDrawer() && remoteGameSameRound)
+        ? mergePresenceState(data.state, state)
+        : adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
-    replayCanvas();
+    if (!(isDrawer() && remoteGameSameRound)) replayCanvas();
     syncRouteFromPhase();
   }
   if (data.type === "select") {
@@ -1877,6 +1886,21 @@ function handleSyncPayload(data, exceptPeer = "") {
   }
 }
 
+function applyPresence(player, data = {}) {
+  if (!player || !state) return;
+  const existing = state.players?.[player.id];
+  state.players[player.id] = {
+    ...existing,
+    ...player,
+    score: Math.max(player.score || 0, existing?.score || 0),
+    joinedAt: Math.min(player.joinedAt || Date.now(), existing?.joinedAt || Date.now()),
+  };
+  if (!state.drawerId && data.drawerId) state.drawerId = data.drawerId;
+  ensureCurrentPlayer();
+  localStorage.setItem(roomKey(), JSON.stringify(state));
+  render();
+}
+
 function adoptDrawingEventState(data) {
   if (isHost || !data?.state || !shouldAcceptFlowState(data.state)) return;
   state = adoptFlowState(data.state, { preferRemoteLines: true });
@@ -1953,6 +1977,15 @@ function startRelayMode() {
 
 function announcePresence() {
   if (!state?.players?.[clientId]) return;
+  sendSync(
+    {
+      type: "presence",
+      player: state.players[clientId],
+      isHost,
+      drawerId: isHost ? state.drawerId || clientId : "",
+    },
+    { forceRelay: true },
+  );
   if (isHost) {
     sendSync({ type: "state", state }, { relay: true });
     return;
