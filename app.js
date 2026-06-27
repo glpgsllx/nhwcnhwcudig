@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.13";
+const APP_VERSION = "2026.06.27.14";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -1051,7 +1051,7 @@ function replayCanvas() {
   const drawnLineIds = new Set();
   state?.strokes?.forEach((stroke) => {
     if (stroke.type === "fill") {
-      if (!applyImagePatch(stroke.patch)) applyFillOperation(stroke);
+      applyFillOperation(stroke);
       return;
     }
     stroke.lines?.forEach((line) => {
@@ -1115,7 +1115,6 @@ function seededRandom(seed) {
 }
 
 function fillAtPoint(point) {
-  const beforeFill = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const fill = {
     id: randomId(),
     type: "fill",
@@ -1128,12 +1127,12 @@ function fillAtPoint(point) {
   };
   const changed = applyFillOperation(fill);
   if (!changed) return;
-  fill.patch = makeImagePatch(beforeFill, ctx.getImageData(0, 0, canvas.width, canvas.height));
   state.strokes = [...(state.strokes || []), fill];
   state.redoStrokes = [];
   state.boardVersion = (state.boardVersion || 0) + 1;
   saveState({ broadcast: false });
   sendSync({ type: "fill", fill, boardVersion: state.boardVersion, state });
+  sendCanvasSnapshot("fill");
 }
 
 function applyFillOperation(fill) {
@@ -1314,7 +1313,9 @@ function finishCurrentStroke() {
   if (currentStroke.lines.length) {
     state.strokes = [...(state.strokes || []), currentStroke];
     state.redoStrokes = [];
-    sendSync({ type: "stroke", stroke: currentStroke, state });
+    state.boardVersion = (state.boardVersion || 0) + 1;
+    sendSync({ type: "stroke", stroke: currentStroke, state, boardVersion: state.boardVersion });
+    sendCanvasSnapshot("stroke");
   }
   currentStroke = null;
 }
@@ -1759,6 +1760,19 @@ function sendFlowSync(payload) {
   setTimeout(() => sendSync(payload, { forceRelay: true }), 1800);
 }
 
+function sendCanvasSnapshot(reason) {
+  if (!state?.roundId) return;
+  const snapshot = {
+    roundId: state.roundId,
+    boardVersion: state.boardVersion || 0,
+    width: canvas.width,
+    height: canvas.height,
+    image: canvas.toDataURL("image/png"),
+    reason,
+  };
+  sendSync({ type: "canvas", snapshot, state, boardVersion: snapshot.boardVersion }, { forceRelay: true });
+}
+
 function broadcastPeer(event, exceptPeer = "") {
   connections.forEach((connection) => {
     if (connection.peer === exceptPeer || !connection.open) return;
@@ -1933,11 +1947,38 @@ function handleSyncPayload(data, exceptPeer = "") {
     state.boardVersion = Math.max(state.boardVersion || 0, data.boardVersion || 0);
     localStorage.setItem(roomKey(), JSON.stringify(state));
   }
+  if (data.type === "canvas") {
+    adoptDrawingEventState(data);
+    if (!isAuthorizedDrawerEvent(data)) {
+      applyingRemoteState = false;
+      return;
+    }
+    state.boardVersion = Math.max(state.boardVersion || 0, data.boardVersion || 0);
+    localStorage.setItem(roomKey(), JSON.stringify(state));
+    applyCanvasSnapshot(data.snapshot);
+  }
   applyingRemoteState = false;
 
-  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "line", "lines", "stroke", "fill"].includes(data.type)) {
+  if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "line", "lines", "stroke", "fill", "canvas"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
+}
+
+function applyCanvasSnapshot(snapshot) {
+  if (!snapshot?.image || snapshot.roundId !== state.roundId) return;
+  const snapshotVersion = snapshot.boardVersion || 0;
+  const image = new Image();
+  image.onload = () => {
+    if (snapshot.roundId !== state.roundId) return;
+    if (snapshotVersion < (state.boardVersion || 0)) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  };
+  image.src = snapshot.image;
 }
 
 function applyPresence(player, data = {}) {
@@ -1994,7 +2035,7 @@ function applyRemoteFill(fill) {
   state.strokes = [...(state.strokes || []), fill];
   state.redoStrokes = [];
   localStorage.setItem(roomKey(), JSON.stringify(state));
-  if (!applyImagePatch(fill.patch)) replayCanvas();
+  replayCanvas();
 }
 
 function startRelayMode() {
