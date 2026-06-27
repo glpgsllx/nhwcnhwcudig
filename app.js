@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.12";
+const APP_VERSION = "2026.06.27.13";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -689,6 +689,11 @@ function syncRouteFromPhase() {
   const route = routeForPhase();
   if (!route || currentRoute() === route) return;
   navigate(route);
+}
+
+function refreshShellRoute() {
+  const route = currentRoute();
+  if (route === "room" || route === "select-word") showRoute(route);
 }
 
 function phaseRank(phase) {
@@ -1806,6 +1811,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     render();
     if (!(isDrawer() && remoteGameSameRound)) replayCanvas();
     syncRouteFromPhase();
+    refreshShellRoute();
   }
   if (data.type === "select") {
     if (!shouldAcceptFlowState(data.state)) {
@@ -1947,6 +1953,7 @@ function applyPresence(player, data = {}) {
   ensureCurrentPlayer();
   localStorage.setItem(roomKey(), JSON.stringify(state));
   render();
+  refreshShellRoute();
 }
 
 function adoptDrawingEventState(data) {
