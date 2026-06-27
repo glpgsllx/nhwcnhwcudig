@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.5";
+const APP_VERSION = "2026.06.27.7";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -484,6 +484,7 @@ function enterRoom(name, requestedRoom = "", options = {}) {
   const enteredRoom = sanitizeRoom(requestedRoom);
   roomId = (enteredRoom || makeRoomCode()).toUpperCase();
   isHost = !enteredRoom;
+  const joiningExistingRoom = Boolean(enteredRoom);
   if (!playerName) return false;
 
   state = loadState() || createState();
@@ -501,9 +502,12 @@ function enterRoom(name, requestedRoom = "", options = {}) {
     score: state.players[clientId]?.score || 0,
     joinedAt: state.players[clientId]?.joinedAt || Date.now(),
   };
-  if (!state.drawerId) state.drawerId = clientId;
+  if (joiningExistingRoom && state.drawerId === clientId && Object.keys(state.players).length <= 1) {
+    state.drawerId = "";
+  }
+  if (!state.drawerId && isHost) state.drawerId = clientId;
   rememberSession();
-  saveState();
+  saveState({ broadcast: !joiningExistingRoom });
   copyRoom.textContent = roomId;
   render();
   replayCanvas();
@@ -1698,9 +1702,15 @@ function handleSyncPayload(data, exceptPeer = "") {
     return;
   }
 
+  if (data.type === "state-request" && isHost) {
+    if (data.player) handleJoin(data.player);
+    sendSync({ type: "state", state });
+    return;
+  }
+
   applyingRemoteState = true;
   if (data.type === "state") {
-    state = mergeState(data.state, state);
+    state = isHost ? mergePresenceState(data.state, state) : adoptFlowState(data.state, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
@@ -1870,7 +1880,11 @@ function startRelayMode() {
   relaySource.onopen = () => {
     relayReady = true;
     updateSyncStatus();
-    sendSync({ type: "join", player: state.players[clientId] }, { relay: true });
+    announcePresence();
+    if (!isHost) {
+      setTimeout(announcePresence, 800);
+      setTimeout(announcePresence, 2200);
+    }
   };
 
   relaySource.onmessage = (event) => {
@@ -1890,6 +1904,16 @@ function startRelayMode() {
     relayReady = false;
     updateSyncStatus();
   };
+}
+
+function announcePresence() {
+  if (!state?.players?.[clientId]) return;
+  if (isHost) {
+    sendSync({ type: "state", state }, { relay: true });
+    return;
+  }
+  sendSync({ type: "join", player: state.players[clientId] }, { relay: true });
+  sendSync({ type: "state-request", player: state.players[clientId] }, { relay: true });
 }
 
 function publishRelay(event) {
@@ -1960,6 +1984,20 @@ function mergeState(remoteState, localState, options = {}) {
     lines: chooseLines(remoteState, localState, options),
     strokes: chooseStrokes(remoteState, localState, options),
     redoStrokes: baseState.redoStrokes || [],
+  };
+}
+
+function mergePresenceState(remoteState, localState) {
+  if (!remoteState) return localState;
+  normalizeState(remoteState);
+  normalizeState(localState);
+  return {
+    ...localState,
+    players: mergePlayers(remoteState.players, localState.players),
+    messages: [...(remoteState.messages || []), ...(localState.messages || [])]
+      .filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-40),
   };
 }
 
@@ -2040,7 +2078,8 @@ function handleJoin(player) {
       makeMessage("系统", `${player.name} 加入了房间`, "system"),
     ];
   }
-  saveState();
+  saveState({ broadcast: false });
+  sendSync({ type: "state", state });
 }
 
 function updateSyncStatus() {

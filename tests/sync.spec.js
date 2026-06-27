@@ -384,6 +384,52 @@ test("browser back from game keeps the current room and ongoing sync", async ({ 
   expect(diff.totalDelta).toBeLessThan(2000);
 });
 
+test("separate devices join the same room and receive host start", async ({ browser }) => {
+  const hostContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const guestContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const host = await hostContext.newPage();
+  const guest = await guestContext.newPage();
+
+  await host.goto(BASE_URL);
+  await host.getByRole("button", { name: "创建房间" }).click();
+  await host.locator("#createName").click();
+  await host.locator("#createName").fill("房主");
+  await expect(host.locator("#createName")).toHaveValue("房主");
+  await host.locator("#createRounds").fill("1");
+  await host.locator("#createRoomForm button[type='submit']").click();
+  await expect(host.getByText("房间等待")).toBeVisible();
+  const room = (await host.locator(".room-code-card strong").textContent()).trim();
+
+  await guest.goto(`${BASE_URL}/#join-room`);
+  await guest.locator("#joinRoomCode").fill(room);
+  await guest.getByRole("button", { name: "下一步" }).click();
+  await guest.locator("#joinName").fill("访客");
+  await guest.getByRole("button", { name: "确认进入" }).click();
+  await expect(guest.getByText("房间等待")).toBeVisible();
+  await expect(host.locator(".shell-list li", { hasText: "访客" }).first()).toBeVisible({
+    timeout: 7000,
+  });
+
+  await host.getByRole("button", { name: "开始游戏" }).click();
+  await expect(host.getByText("等待选词...")).toBeVisible({ timeout: 5000 });
+  await expect(guest.getByText("盲选词语")).toBeVisible({ timeout: 7000 });
+  await guest.locator("[data-word]").first().click();
+  await expect(host.locator("#game")).toBeVisible({ timeout: 7000 });
+  await expect(host.locator("#roleLabel")).toHaveText("画手");
+  await expect(guest.locator("#roleLabel")).toHaveText("猜词");
+
+  await guestContext.close();
+  await hostContext.close();
+});
+
 test("drawer refreshes mid-round and keeps syncing", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
