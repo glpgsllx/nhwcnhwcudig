@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.8";
+const APP_VERSION = "2026.06.27.9";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -535,7 +535,7 @@ function beginWordSelection() {
   clearRelayLineQueue();
   replayCanvas();
   saveState({ broadcast: false });
-  sendSync({ type: "select", state, boardVersion: state.boardVersion });
+  sendFlowSync({ type: "select", state, boardVersion: state.boardVersion });
   navigate("select-word");
 }
 
@@ -568,7 +568,7 @@ function startNewRound(word) {
   ];
   replayCanvas();
   saveState({ broadcast: false });
-  sendSync({ type: "round", state });
+  sendFlowSync({ type: "round", state });
 }
 
 function finishRound(success) {
@@ -599,7 +599,7 @@ function finishRound(success) {
   state.word = "";
   state.roundEndsAt = 0;
   saveState({ broadcast: false });
-  sendSync({ type: "result", state });
+  sendFlowSync({ type: "result", state });
   navigate("result");
 }
 
@@ -608,7 +608,7 @@ function finishGame() {
   if (!isHost || state.phase !== "result") return;
   state.phase = "final-result";
   saveState({ broadcast: false });
-  sendSync({ type: "final", state });
+  sendFlowSync({ type: "final", state });
   navigate("final-result");
 }
 
@@ -1679,6 +1679,12 @@ function sendSync(payload, options = {}) {
   seenSyncEvents.add(event.eventId);
   broadcastPeer(event, options.exceptPeer);
   if (options.relay !== false) publishRelay(event, options);
+}
+
+function sendFlowSync(payload) {
+  sendSync(payload, { forceRelay: true });
+  setTimeout(() => sendSync(payload, { forceRelay: true }), 700);
+  setTimeout(() => sendSync(payload, { forceRelay: true }), 1800);
 }
 
 function broadcastPeer(event, exceptPeer = "") {

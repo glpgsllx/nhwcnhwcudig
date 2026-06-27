@@ -428,6 +428,15 @@ test("separate devices join the same room and receive host start", async ({ brow
   await expect(host.locator("#roleLabel")).toHaveText("画手");
   await expect(guest.locator("#roleLabel")).toHaveText("猜词");
 
+  const word = (await host.locator("#roundTitle").textContent()).trim();
+  await guest.locator("#guessInput").fill(word);
+  await guest.getByRole("button", { name: "发送" }).click();
+  await expect(host.getByText("回合成功！")).toBeVisible({ timeout: 7000 });
+  await expect(guest.getByText("回合成功！")).toBeVisible({ timeout: 7000 });
+  await host.getByRole("button", { name: "进入下一轮" }).click();
+  await expect(host.getByText("盲选词语")).toBeVisible({ timeout: 7000 });
+  await expect(guest.getByText("等待选词...")).toBeVisible({ timeout: 9000 });
+
   await guestContext.close();
   await hostContext.close();
 });
