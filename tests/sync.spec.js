@@ -211,6 +211,8 @@ async function completeRound({ host, guest, drawer, guesser, selector, wrongGues
   await guesserPage.locator("#guessInput").fill(wrongGuess);
   await guesserPage.getByRole("button", { name: "发送" }).click();
   await expect(drawerPage.getByText(`${guesserName}：${wrongGuess}`)).toBeVisible({ timeout: 5000 });
+  await expect(drawerPage.getByText(`系统：${guesserName} 猜错了`).first()).toBeVisible({ timeout: 5000 });
+  await expect(guesserPage.getByText(`系统：${guesserName} 猜错了`).first()).toBeVisible({ timeout: 5000 });
 
   await guesserPage.locator("#guessInput").fill(word);
   await guesserPage.getByRole("button", { name: "发送" }).click();

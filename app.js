@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.7";
+const APP_VERSION = "2026.06.27.8";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -836,7 +836,11 @@ guessForm.addEventListener("submit", (event) => {
     ];
     finishRound(true);
   } else {
-    state.messages = [...state.messages.slice(-30), makeMessage(playerName, text, "message")];
+    state.messages = [
+      ...state.messages.slice(-30),
+      makeMessage(playerName, text, "message"),
+      makeMessage("系统", `${playerName} 猜错了`, "wrong"),
+    ];
     saveState();
   }
 });
@@ -1104,7 +1108,7 @@ function fillAtPoint(point) {
   state.redoStrokes = [];
   state.boardVersion = (state.boardVersion || 0) + 1;
   saveState({ broadcast: false });
-  sendSync({ type: "fill", fill, boardVersion: state.boardVersion });
+  sendSync({ type: "fill", fill, boardVersion: state.boardVersion, state });
 }
 
 function applyFillOperation(fill) {
@@ -1285,7 +1289,7 @@ function finishCurrentStroke() {
   if (currentStroke.lines.length) {
     state.strokes = [...(state.strokes || []), currentStroke];
     state.redoStrokes = [];
-    sendSync({ type: "stroke", stroke: currentStroke });
+    sendSync({ type: "stroke", stroke: currentStroke, state });
   }
   currentStroke = null;
 }
@@ -1674,7 +1678,7 @@ function sendSync(payload, options = {}) {
   };
   seenSyncEvents.add(event.eventId);
   broadcastPeer(event, options.exceptPeer);
-  if (options.relay !== false) publishRelay(event);
+  if (options.relay !== false) publishRelay(event, options);
 }
 
 function broadcastPeer(event, exceptPeer = "") {
@@ -1820,6 +1824,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     data.lines?.forEach(applyRemoteLine);
   }
   if (data.type === "stroke") {
+    adoptDrawingEventState(data);
     if (!isAuthorizedDrawerEvent(data)) {
       applyingRemoteState = false;
       return;
@@ -1827,6 +1832,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     applyRemoteStroke(data.stroke);
   }
   if (data.type === "fill") {
+    adoptDrawingEventState(data);
     if (!isAuthorizedDrawerEvent(data)) {
       applyingRemoteState = false;
       return;
@@ -1840,6 +1846,16 @@ function handleSyncPayload(data, exceptPeer = "") {
   if (["state", "select", "round", "result", "final", "clear", "undo", "redo", "line", "lines", "stroke", "fill"].includes(data.type)) {
     broadcastPeer(data, exceptPeer);
   }
+}
+
+function adoptDrawingEventState(data) {
+  if (isHost || !data?.state || !shouldAcceptFlowState(data.state)) return;
+  state = adoptFlowState(data.state, { preferRemoteLines: true });
+  ensureCurrentPlayer();
+  localStorage.setItem(roomKey(), JSON.stringify(state));
+  render();
+  replayCanvas();
+  syncRouteFromPhase();
 }
 
 function applyRemoteLine(line) {
@@ -1916,10 +1932,10 @@ function announcePresence() {
   sendSync({ type: "state-request", player: state.players[clientId] }, { relay: true });
 }
 
-function publishRelay(event) {
+function publishRelay(event, options = {}) {
   if (!relayReady) return;
   const now = Date.now();
-  if (event.type === "state" && now - lastRelayPublishAt < 350) return;
+  if (event.type === "state" && !options.forceRelay && now - lastRelayPublishAt < 350) return;
   lastRelayPublishAt = now;
   fetch(relayTopicUrl(), {
     method: "POST",
@@ -2079,7 +2095,8 @@ function handleJoin(player) {
     ];
   }
   saveState({ broadcast: false });
-  sendSync({ type: "state", state });
+  sendSync({ type: "state", state }, { forceRelay: true });
+  setTimeout(() => sendSync({ type: "state", state }, { forceRelay: true }), 700);
 }
 
 function updateSyncStatus() {

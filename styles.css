@@ -871,6 +871,12 @@ canvas {
   font-weight: 800;
 }
 
+.message.wrong {
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 800;
+}
+
 .message.hint {
   background: #fffbeb;
   border: 1px solid #fde68a;
