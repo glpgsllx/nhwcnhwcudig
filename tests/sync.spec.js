@@ -109,7 +109,13 @@ async function drawLine(page) {
   await expect.poll(() => nonWhitePixels(page), { timeout: 5000 }).toBeGreaterThan(before + 20);
 }
 
-async function completeRound({ host, guest, drawer, guesser, selector, wrongGuess, roundNumber }) {
+async function selectTool(page, tool) {
+  if (!tool || tool === "marker") return;
+  await page.locator(`[data-tool="${tool}"]`).click();
+  await expect(page.locator(`[data-tool="${tool}"]`)).toHaveClass(/active/);
+}
+
+async function completeRound({ host, guest, drawer, guesser, selector, wrongGuess, roundNumber, tool }) {
   const drawerPage = drawer === "host" ? host : guest;
   const guesserPage = guesser === "host" ? host : guest;
   const drawerName = drawer === "host" ? "房主" : "访客";
@@ -128,6 +134,7 @@ async function completeRound({ host, guest, drawer, guesser, selector, wrongGues
   await expect(drawerPage.locator("#score")).toContainText(`第 ${roundNumber}/6 次`);
   await expect(guesserPage.locator("#score")).toContainText(`第 ${roundNumber}/6 次`);
 
+  await selectTool(drawerPage, tool);
   await drawLine(drawerPage);
   await expect.poll(() => nonWhitePixels(guesserPage), { timeout: 5000 }).toBeGreaterThan(20);
   await expect
@@ -205,6 +212,7 @@ test("host and guest can complete three back-and-forth rounds", async ({ browser
     selector: guest,
     wrongGuess: "香蕉",
     roundNumber: 1,
+    tool: "crayon",
   });
 
   await host.getByRole("button", { name: "进入下一轮" }).click();

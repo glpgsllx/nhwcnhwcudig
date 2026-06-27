@@ -777,8 +777,8 @@ canvas.addEventListener("pointermove", (event) => {
     size: style.size,
     tool: style.tool,
     opacity: style.opacity,
-    seed: Math.random(),
   };
+  addDeterministicTexture(line);
   state.lines.push(line);
   currentStroke.lines.push(line);
   drawLine(line);
@@ -929,16 +929,37 @@ function drawLine(line) {
 }
 
 function drawCrayonTexture(line) {
-  const jitter = (line.seed || 0.5) - 0.5;
   ctx.globalAlpha = Math.max(0.18, (line.opacity ?? 0.8) * 0.45);
   ctx.lineWidth = Math.max(1, line.size * 0.35);
-  for (let index = 0; index < 3; index += 1) {
-    const offset = (index - 1) * line.size * 0.18 + jitter * line.size;
+  const offsets = line.textureOffsets || [-0.18, 0, 0.18];
+  offsets.forEach((offsetRatio) => {
+    const offset = offsetRatio * line.size;
     ctx.beginPath();
     ctx.moveTo(line.from.x + offset, line.from.y - offset);
     ctx.lineTo(line.to.x + offset, line.to.y - offset);
     ctx.stroke();
+  });
+}
+
+function addDeterministicTexture(line) {
+  if (line.tool !== "crayon") return;
+  const random = seededRandom(`${line.strokeId}:${line.id}`);
+  line.textureOffsets = [-0.18, 0, 0.18].map((base) => base + (random() - 0.5) * 0.22);
+}
+
+function seededRandom(seed) {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
   }
+  return () => {
+    hash += 0x6d2b79f5;
+    let value = hash;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function fillAtPoint(point) {
