@@ -766,8 +766,16 @@ input:focus {
   width: 30px;
 }
 
+.swatch:hover,
+.swatch:focus-visible,
 .swatch.active {
-  box-shadow: 0 0 0 3px #2563eb;
+  background: var(--swatch);
+}
+
+.swatch.active {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 5px #2563eb;
 }
 
 .opacity-control {
