@@ -1,5 +1,5 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.06.27.15";
+const APP_VERSION = "2026.07.01.17";
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -77,7 +77,7 @@ ctx.lineCap = "round";
 ctx.lineJoin = "round";
 if (presetRoom) roomInput.value = sanitizeRoom(presetRoom);
 setZoom(1);
-const restoredSession = restoreLastSession();
+const restoredSession = shouldRestoreSessionFromRoute() && restoreLastSession();
 if (restoredSession) {
   const restoredRoute = routeForPhase() || currentRoute();
   if (currentRoute() === restoredRoute) {
@@ -183,6 +183,10 @@ function restoreLastSession() {
   startLocalTimer();
   startPeerMode();
   return true;
+}
+
+function shouldRestoreSessionFromRoute() {
+  return ["room", "select-word", "game", "result", "final-result"].includes(currentRoute());
 }
 
 function keepRouteInCurrentFlow() {
@@ -505,7 +509,7 @@ function enterRoom(name, requestedRoom = "", options = {}) {
   const joiningExistingRoom = Boolean(enteredRoom);
   if (!playerName) return false;
 
-  state = loadState() || createState();
+  state = createState();
   if (!enteredRoom) {
     state.phase = "room";
     state.category = options.category || state.category || "默认词库";
@@ -513,6 +517,12 @@ function enterRoom(name, requestedRoom = "", options = {}) {
     state.roundNumber = 0;
     state.history = [];
     state.result = null;
+    state.players = {};
+    state.drawerId = clientId;
+  } else {
+    state.phase = "room";
+    state.players = {};
+    state.drawerId = "";
   }
   state.players[clientId] = {
     id: clientId,
@@ -1514,7 +1524,7 @@ function getCanvasPoint(event) {
 }
 
 function makeRoomCode() {
-  return String(Math.floor(1000 + Math.random() * 9000));
+  return String(Math.floor(10000000 + Math.random() * 90000000));
 }
 
 function roundDurationMs() {
