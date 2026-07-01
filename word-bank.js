@@ -1236,7 +1236,9 @@
   ]
 };
 
-  const WORDS = [...new Set(Object.values(WORD_BANK).flat())];
+  const GENERATED_WORDS = window.GENERATED_WORDS || [];
+  const WORDS = [...new Set(Object.values(WORD_BANK).flat().concat(GENERATED_WORDS))];
   window.WORD_BANK = WORD_BANK;
+  window.GENERATED_WORDS = GENERATED_WORDS;
   window.WORDS = WORDS;
 })();
