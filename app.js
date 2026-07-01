@@ -1,5 +1,7 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
-const APP_VERSION = "2026.07.01.17";
+const WORD_HINTS = window.WORD_HINTS || {};
+const APP_VERSION = "2026.07.01.19";
+const RELAY_LINE_FLUSH_MS = 45;
 
 const storagePrefix = "draw-and-guess-demo:";
 const clientIdKey = `${storagePrefix}client-id`;
@@ -298,7 +300,7 @@ function renderJoinRoomPage() {
         <h1>输入邀请码</h1>
         <p>向房主获取房间号并在此输入</p>
         <form id="joinCodeForm" class="shell-form ${isNicknameStep ? "hidden" : ""}">
-          <input id="joinRoomCode" class="room-code-input" maxlength="16" value="${sanitizeHtml(defaultRoom)}" placeholder="例如：8273" required />
+          <input id="joinRoomCode" class="room-code-input" maxlength="4" value="${sanitizeHtml(defaultRoom)}" placeholder="例如：8273" required />
           <button type="submit">下一步</button>
         </form>
       </div>
@@ -411,7 +413,7 @@ function renderResultPage() {
       <h1>${success ? "回合成功！" : "回合失败"}</h1>
       <p>正确答案：<strong>${sanitizeHtml(result.word || state?.lastWord || "未知")}</strong></p>
       <div class="shell-card result-stats">
-        <p>猜测耗时：${result.timeUsed ?? 60} 秒</p>
+        <p>猜测耗时：${result.timeUsed ?? roundDurationSeconds()} 秒</p>
         <p>当前进度：${roundProgressText()}</p>
         <p>当前分数：${scoreText}</p>
       </div>
@@ -605,13 +607,16 @@ function finishRound(success) {
   const word = state.word || state.lastWord || "";
   const resultId = `${state.roundId}:${success ? "success" : "failed"}`;
   if (state.result?.id === resultId) return;
-  const timeUsed = state.roundEndsAt ? Math.min(60, Math.max(0, Math.round((60_000 - (state.roundEndsAt - Date.now())) / 1000))) : 60;
+  const durationSeconds = roundDurationSeconds();
+  const timeUsed = state.roundEndsAt
+    ? Math.min(durationSeconds, Math.max(0, Math.round((durationSeconds * 1000 - (state.roundEndsAt - Date.now())) / 1000)))
+    : durationSeconds;
   state.phase = "result";
   state.result = {
     id: resultId,
     success,
     word,
-    timeUsed: success ? timeUsed : 60,
+    timeUsed: success ? timeUsed : durationSeconds,
     round: state.roundNumber || 1,
   };
   state.history = [
@@ -838,7 +843,7 @@ hintButton.addEventListener("click", () => {
   state.hintVisible = true;
   state.messages = [
     ...state.messages.slice(-30),
-    makeMessage("系统", `提示：${hintForCategory(state.category)}`, "hint"),
+    makeMessage("系统", `提示：${wordLength(state.word)}字，${hintForWord(state.word)}`, "hint"),
   ];
   saveState();
 });
@@ -1044,7 +1049,7 @@ function render() {
   hintButton.classList.toggle("hidden", drawerMode || state.phase !== "game" || state.hintVisible);
   const lengthHint = state.word && !drawerMode ? `${currentWordLength}字，` : "";
   guessInput.placeholder = state.hintVisible
-    ? `提示：${lengthHint}${hintForCategory(state.category)}，输入答案...`
+    ? `提示：${lengthHint}${hintForWord(state.word)}，输入答案...`
     : state.word && !drawerMode
       ? `答案 ${currentWordLength} 字，输入答案或聊天`
       : "输入答案或聊天";
@@ -1524,16 +1529,20 @@ function getCanvasPoint(event) {
 }
 
 function makeRoomCode() {
-  return String(Math.floor(10000000 + Math.random() * 90000000));
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-function roundDurationMs() {
+function roundDurationSeconds() {
   const testSeconds = Number(new URLSearchParams(window.location.search).get("roundSeconds"));
   const testHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
   if (testHost && Number.isFinite(testSeconds) && testSeconds > 0) {
-    return Math.max(1, Math.min(60, testSeconds)) * 1000;
+    return Math.max(1, Math.min(100, testSeconds));
   }
-  return 60_000;
+  return 100;
+}
+
+function roundDurationMs() {
+  return roundDurationSeconds() * 1000;
 }
 
 function makeMessage(author, text, type) {
@@ -1607,6 +1616,10 @@ function hintForCategory(category) {
   if (category === "日常用品") return "日常用品";
   if (category === "成语大全") return "一个成语";
   return "看看分类和笔画";
+}
+
+function hintForWord(word) {
+  return WORD_HINTS[word] || hintForCategory(state?.category || "");
 }
 
 function hexToRgb(hex) {
@@ -1765,9 +1778,15 @@ function sendSync(payload, options = {}) {
 }
 
 function sendFlowSync(payload) {
-  sendSync(payload, { forceRelay: true });
-  setTimeout(() => sendSync(payload, { forceRelay: true }), 700);
-  setTimeout(() => sendSync(payload, { forceRelay: true }), 1800);
+  const snapshot = cloneSyncPayload(payload);
+  sendSync(snapshot, { forceRelay: true });
+  setTimeout(() => sendSync(cloneSyncPayload(snapshot), { forceRelay: true }), 700);
+  setTimeout(() => sendSync(cloneSyncPayload(snapshot), { forceRelay: true }), 1800);
+}
+
+function cloneSyncPayload(payload) {
+  if (typeof structuredClone === "function") return structuredClone(payload);
+  return JSON.parse(JSON.stringify(payload));
 }
 
 function sendCanvasSnapshot(reason) {
@@ -1822,23 +1841,25 @@ function handleSyncPayload(data, exceptPeer = "") {
 
   applyingRemoteState = true;
   if (data.type === "state") {
+    const remoteState = data.state;
+    const acceptFullState = !state || !remoteState || shouldAcceptFlowState(remoteState);
     const remoteGameSameRound =
       state?.phase === "game" &&
-      data.state?.phase === "game" &&
-      (!state.roundId || !data.state.roundId || state.roundId === data.state.roundId);
+      remoteState?.phase === "game" &&
+      (!state.roundId || !remoteState.roundId || state.roundId === remoteState.roundId);
     state =
-      isHost || (isDrawer() && remoteGameSameRound)
-        ? mergePresenceState(data.state, state)
-        : adoptFlowState(data.state, { preferRemoteLines: true });
+      isHost || (isDrawer() && remoteGameSameRound) || !acceptFullState
+        ? mergePresenceState(remoteState, state)
+        : adoptFlowState(remoteState, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
-    if (!(isDrawer() && remoteGameSameRound)) replayCanvas();
+    if (acceptFullState && !(isDrawer() && remoteGameSameRound)) replayCanvas();
     syncRouteFromPhase();
     refreshShellRoute();
   }
   if (data.type === "select") {
-    if (!shouldAcceptFlowState(data.state)) {
+    if (data.state?.phase !== "select-word" || !shouldAcceptFlowState(data.state)) {
       applyingRemoteState = false;
       return;
     }
@@ -1850,7 +1871,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("select-word");
   }
   if (data.type === "round") {
-    if (!shouldAcceptFlowState(data.state)) {
+    if (data.state?.phase !== "game" || !shouldAcceptFlowState(data.state)) {
       applyingRemoteState = false;
       return;
     }
@@ -1862,6 +1883,10 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("game");
   }
   if (data.type === "result") {
+    if (data.state?.phase !== "result") {
+      applyingRemoteState = false;
+      return;
+    }
     if (state?.roundId && data.state?.roundId && state.roundId !== data.state.roundId && state.phase === "game") {
       applyingRemoteState = false;
       return;
@@ -1882,7 +1907,7 @@ function handleSyncPayload(data, exceptPeer = "") {
     navigate("result");
   }
   if (data.type === "final") {
-    if (!shouldAcceptFlowState(data.state)) {
+    if (data.state?.phase !== "final-result" || !shouldAcceptFlowState(data.state)) {
       applyingRemoteState = false;
       return;
     }
@@ -2117,14 +2142,14 @@ function publishRelay(event, options = {}) {
 function queueRelayLine(line) {
   relayLineQueue.push(line);
   if (relayLineTimer) return;
-  relayLineTimer = setTimeout(flushRelayLines, 90);
+  relayLineTimer = setTimeout(flushRelayLines, RELAY_LINE_FLUSH_MS);
 }
 
 function flushRelayLines() {
   relayLineTimer = null;
   const lines = relayLineQueue.splice(0, 24);
   if (lines.length) sendSync({ type: "lines", lines });
-  if (relayLineQueue.length) relayLineTimer = setTimeout(flushRelayLines, 90);
+  if (relayLineQueue.length) relayLineTimer = setTimeout(flushRelayLines, RELAY_LINE_FLUSH_MS);
 }
 
 function clearRelayLineQueue() {

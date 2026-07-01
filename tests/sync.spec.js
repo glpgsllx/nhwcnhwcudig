@@ -242,7 +242,7 @@ test("host and guest can complete three back-and-forth rounds", async ({ browser
   await host.locator("#createRoomForm button[type='submit']").click();
   await expect(host.getByText("房间等待")).toBeVisible();
   const room = (await host.locator(".room-code-card strong").textContent()).trim();
-  expect(room).toMatch(/^\d{8}$/);
+  expect(room).toMatch(/^\d{4}$/);
 
   await guest.goto(`${BASE_URL}/#join-room`);
   await guest.locator("#joinRoomCode").fill(room);
@@ -444,6 +444,86 @@ test("separate devices join the same room and receive host start", async ({ brow
   await hostContext.close();
 });
 
+test("stale select sync cannot pull third round back from game", async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  const host = await context.newPage();
+  const guest = await context.newPage();
+
+  await host.goto(BASE_URL);
+  await host.getByRole("button", { name: "创建房间" }).click();
+  await host.locator("#createName").click();
+  await host.locator("#createName").fill("房主");
+  await expect(host.locator("#createName")).toHaveValue("房主");
+  await host.locator("#createRounds").fill("3");
+  await host.locator("#createRoomForm button[type='submit']").click();
+  await expect(host.getByText("房间等待")).toBeVisible();
+  const room = (await host.locator(".room-code-card strong").textContent()).trim();
+
+  await guest.goto(`${BASE_URL}/#join-room`);
+  await guest.locator("#joinRoomCode").fill(room);
+  await guest.getByRole("button", { name: "下一步" }).click();
+  await guest.locator("#joinName").fill("访客");
+  await guest.getByRole("button", { name: "确认进入" }).click();
+  await expect(guest.getByText("房间等待")).toBeVisible();
+  await expect(host.locator(".shell-list li", { hasText: "访客" }).first()).toBeVisible({
+    timeout: 5000,
+  });
+
+  await host.getByRole("button", { name: "开始游戏" }).click();
+  await completeRound({
+    host,
+    guest,
+    drawer: "host",
+    guesser: "guest",
+    selector: guest,
+    wrongGuess: "香蕉",
+    roundNumber: 1,
+  });
+
+  await host.getByRole("button", { name: "进入下一轮" }).click();
+  await completeRound({
+    host,
+    guest,
+    drawer: "guest",
+    guesser: "host",
+    selector: host,
+    wrongGuess: "月亮",
+    roundNumber: 2,
+  });
+
+  await host.getByRole("button", { name: "进入下一轮" }).click();
+  await expect(host.getByText("等待选词...")).toBeVisible({ timeout: 5000 });
+  await expect(guest.getByText("盲选词语")).toBeVisible({ timeout: 5000 });
+  await guest.locator("[data-word]").first().click();
+  await expect(host.locator("#game")).toBeVisible({ timeout: 5000 });
+  await expect(guest.locator("#game")).toBeVisible({ timeout: 5000 });
+
+  await host.evaluate((activeRoom) => {
+    const key = `draw-and-guess-demo:${activeRoom}`;
+    const staleState = JSON.parse(localStorage.getItem(key));
+    staleState.phase = "select-word";
+    staleState.word = "";
+    staleState.roundEndsAt = 0;
+    window.handleSyncPayload({
+      type: "select",
+      state: staleState,
+      eventId: `stale-${Date.now()}`,
+      senderId: "stale-peer",
+      sentAt: Date.now(),
+    });
+  }, room);
+
+  await expect(host.locator("#game")).toBeVisible({ timeout: 3000 });
+  await expect(host.locator("#score")).toContainText("第 3/6 次");
+  await expect(host.getByText("盲选词语")).toBeHidden();
+
+  await context.close();
+});
+
 test("joining a room ignores stale cached room state", async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -577,6 +657,6 @@ test("unanswered round times out for both players", async ({ browser }) => {
 
   await expect(host.getByText("回合失败")).toBeVisible({ timeout: 6000 });
   await expect(guest.getByText("回合失败")).toBeVisible({ timeout: 6000 });
-  await expect(host.getByText("猜测耗时：60 秒")).toBeVisible();
-  await expect(guest.getByText("猜测耗时：60 秒")).toBeVisible();
+  await expect(host.getByText("猜测耗时：2 秒")).toBeVisible();
+  await expect(guest.getByText("猜测耗时：2 秒")).toBeVisible();
 });

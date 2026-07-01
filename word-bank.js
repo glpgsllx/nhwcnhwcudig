@@ -1237,8 +1237,32 @@
 };
 
   const GENERATED_WORDS = window.GENERATED_WORDS || [];
+  const GENERATED_HINTS = window.WORD_HINTS || {};
+  const SOURCE_HINTS = {
+    quickdraw: "常见物品",
+    food: "一种食物",
+    animal: "一种动物",
+    place: "一个地点",
+    traffic: "交通工具",
+    daily: "日常用品",
+    action: "一个动作",
+    job: "一种职业",
+    sport: "一项运动",
+    nature: "自然事物",
+    feeling: "一种感受",
+    idiom: "一个成语",
+    couple: "恋爱相关",
+  };
+  const WORD_HINTS = {};
+  Object.entries(WORD_BANK).forEach(([source, words]) => {
+    words.forEach((word) => {
+      WORD_HINTS[word] ||= SOURCE_HINTS[source] || "看看分类";
+    });
+  });
+  Object.assign(WORD_HINTS, GENERATED_HINTS);
   const WORDS = [...new Set(Object.values(WORD_BANK).flat().concat(GENERATED_WORDS))];
   window.WORD_BANK = WORD_BANK;
   window.GENERATED_WORDS = GENERATED_WORDS;
+  window.WORD_HINTS = WORD_HINTS;
   window.WORDS = WORDS;
 })();
