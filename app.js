@@ -1,6 +1,6 @@
 const WORDS = window.WORDS || ["奶茶", "月亮", "小狗", "火锅"];
 const WORD_HINTS = window.WORD_HINTS || {};
-const APP_VERSION = "2026.07.01.19";
+const APP_VERSION = "2026.07.01.20";
 const RELAY_LINE_FLUSH_MS = 45;
 
 const storagePrefix = "draw-and-guess-demo:";
@@ -1847,14 +1847,22 @@ function handleSyncPayload(data, exceptPeer = "") {
       state?.phase === "game" &&
       remoteState?.phase === "game" &&
       (!state.roundId || !remoteState.roundId || state.roundId === remoteState.roundId);
+    const missedRoundRecovery =
+      isHost &&
+      state?.phase === "select-word" &&
+      remoteState?.phase === "game" &&
+      state.roundNumber === remoteState.roundNumber &&
+      state.drawerId === remoteState.drawerId &&
+      Boolean(remoteState.word);
+    const shouldAdoptState = acceptFullState && (!isHost || missedRoundRecovery);
     state =
-      isHost || (isDrawer() && remoteGameSameRound) || !acceptFullState
+      (isDrawer() && remoteGameSameRound) || !shouldAdoptState
         ? mergePresenceState(remoteState, state)
         : adoptFlowState(remoteState, { preferRemoteLines: true });
     ensureCurrentPlayer();
     localStorage.setItem(roomKey(), JSON.stringify(state));
     render();
-    if (acceptFullState && !(isDrawer() && remoteGameSameRound)) replayCanvas();
+    if (shouldAdoptState && !(isDrawer() && remoteGameSameRound)) replayCanvas();
     syncRouteFromPhase();
     refreshShellRoute();
   }
@@ -2120,6 +2128,9 @@ function announcePresence() {
   if (isHost) {
     sendSync({ type: "state", state }, { relay: true });
     return;
+  }
+  if (state.phase !== "room") {
+    sendSync({ type: "state", state }, { relay: true });
   }
   sendSync({ type: "join", player: state.players[clientId] }, { relay: true });
   sendSync({ type: "state-request", player: state.players[clientId] }, { relay: true });
